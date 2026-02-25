@@ -4,16 +4,6 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
-/// Default [FirebaseOptions] for use with your Firebase apps.
-///
-/// Example:
-/// ```dart
-/// import 'firebase_options.dart';
-/// // ...
-/// await Firebase.initializeApp(
-///   options: DefaultFirebaseOptions.currentPlatform,
-/// );
-/// ```
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
@@ -64,7 +54,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '277385353976',
     projectId: 'travelmemoir-ee340',
     storageBucket: 'travelmemoir-ee340.firebasestorage.app',
-    iosClientId: '277385353976-5807hspd33fcvloonsr814ra0559bsbe.apps.googleusercontent.com',
+    iosClientId:
+        '277385353976-5807hspd33fcvloonsr814ra0559bsbe.apps.googleusercontent.com',
     iosBundleId: 'com.hanajungjun.travelmemoir',
   );
 
@@ -74,7 +65,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '277385353976',
     projectId: 'travelmemoir-ee340',
     storageBucket: 'travelmemoir-ee340.firebasestorage.app',
-    iosClientId: '277385353976-c9gu0lgn131lebo6o4dk6g3bhrejb5dj.apps.googleusercontent.com',
+    iosClientId:
+        '277385353976-c9gu0lgn131lebo6o4dk6g3bhrejb5dj.apps.googleusercontent.com',
     iosBundleId: 'com.example.myApp',
   );
 
