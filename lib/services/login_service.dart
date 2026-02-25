@@ -25,19 +25,19 @@ class LoginService {
 
   Future<void> syncUserToDatabase(User user) async {
     try {
-      // 💡 에러 로그를 보면 첫 번째 값이 PK(id)인 것 같습니다.
-      // user.id를 두 군데 다 확실히 넣어주세요.
+      // 💡 upsert 시 'onConflict' 옵션을 명시하면 더 안전합니다.
       await _supabase.from('users').upsert({
-        'id': user.id,
-        'auth_uid': user.id,
+        'id': user.id, // Primary Key
+        'auth_uid': user.id, // 인증 UID
         'email': user.email,
-        'nickname': user.email?.split('@')[0] ?? 'tester', // 일단 뭐라도 넣기
+        'nickname': user.email?.split('@')[0] ?? 'new_mate',
         'updated_at': DateTime.now().toIso8601String(),
-      });
+      }, onConflict: 'id'); // 👈 'id'가 겹치면 업데이트만 하라고 명시
 
-      debugPrint('✅ 동기화 시도 완료');
+      debugPrint('✅ 유저 데이터 동기화 성공');
     } catch (e) {
-      debugPrint('❌ 서비스단 에러: $e');
+      // 💡 여기서 발생하는 에러가 로그인 차단 원인인지 확인 필수!
+      debugPrint('❌ 동기화 에러: $e');
     }
   }
 
