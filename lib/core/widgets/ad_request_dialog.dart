@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:lottie/lottie.dart';
 
 class AdRequestDialog extends StatelessWidget {
   final VoidCallback onAccept;
@@ -22,13 +21,6 @@ class AdRequestDialog extends StatelessWidget {
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-          Lottie.asset(
-            'assets/lottie/pray.json',
-            width: 180, // 다이얼로그 안에 들어가기 적당한 크기
-            height: 180,
-            fit: BoxFit.contain,
-            repeat: true, // 계속 움직이게
-          ),
         ],
       ),
       actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

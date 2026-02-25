@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   firebase_core
   gal
+  geolocator_windows
   permission_handler_windows
   share_plus
   url_launcher_windows

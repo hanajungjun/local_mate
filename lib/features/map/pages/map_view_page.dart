@@ -1,146 +1,138 @@
 import 'package:flutter/material.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 
-class MapViewPage extends StatelessWidget {
+class MapViewPage extends StatefulWidget {
   const MapViewPage({super.key});
+
+  @override
+  State<MapViewPage> createState() => _MapViewPageState();
+}
+
+class _MapViewPageState extends State<MapViewPage> {
+  GoogleMapController? _controller;
+  LatLng? _currentPosition;
+
+  // 1. 지도에 표시할 마커 세트
+  final Set<Marker> _markers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+    _loadDummyMates(); // 2. 가짜 데이터 로드
+  }
+
+  // 📍 현재 내 위치 가져오기
+  Future<void> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+
+    if (permission == LocationPermission.deniedForever) return;
+
+    Position position = await Geolocator.getCurrentPosition();
+    if (mounted) {
+      setState(() {
+        _currentPosition = LatLng(position.latitude, position.longitude);
+      });
+    }
+  }
+
+  // 📍 당근마켓 스타일 동네 메이트 가짜 데이터
+  void _loadDummyMates() {
+    setState(() {
+      _markers.addAll([
+        Marker(
+          markerId: const MarkerId('mate_deungchon'),
+          position: const LatLng(37.5509, 126.8495), // 등촌동 중심
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueOrange,
+          ),
+          onTap: () => _showMateInfo('등촌동 메이트', '현지인 맛집 킬러입니다!'),
+        ),
+        Marker(
+          markerId: const MarkerId('mate_yeoksam'),
+          position: const LatLng(37.5006, 127.0362), // 역삼동 중심
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
+          onTap: () => _showMateInfo('역삼동 메이트', '강남 핫플 가이드 해드려요.'),
+        ),
+      ]);
+    });
+  }
+
+  // 📍 마커 클릭 시 하단에서 정보창 띄우기 (당근 스타일)
+  void _showMateInfo(String name, String bio) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          height: 200,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                bio,
+                style: const TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('채팅하기'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          // 1. 지도 배경 (실제 지도가 들어갈 자리입니다)
-          Container(
-            color: Colors.grey.shade200,
-            child: const Center(
-              child: Icon(Icons.map_rounded, size: 100, color: Colors.grey),
-            ),
-          ),
-
-          // 2. 상단 검색바 및 모드 안내
-          _buildTopOverlay(context),
-
-          // 3. 지도 위의 핀들 (임시 위치)
-          _buildMapPin(top: 200, left: 100, label: "망원동 고수", isGuide: true),
-          _buildMapPin(top: 350, left: 250, label: "맛집 찾는 여행자", isGuide: false),
-          _buildMapPin(top: 150, left: 200, label: "연남동 베테랑", isGuide: true),
-
-          // 4. 하단 미리보기 카드 (가장 가까운 가이드/공고)
-          _buildBottomPreviewCard(),
-        ],
+      appBar: AppBar(
+        title: const Text('Local Mates Around Me'),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
       ),
-    );
-  }
-
-  // 상단 검색바
-  Widget _buildTopOverlay(BuildContext context) {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 10,
-      left: 20,
-      right: 20,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10),
-          ],
-        ),
-        child: const Row(
-          children: [
-            Icon(Icons.search, color: Colors.grey),
-            SizedBox(width: 10),
-            Text("지금 어디에 계신가요?", style: TextStyle(color: Colors.grey)),
-            Spacer(),
-            Icon(Icons.my_location, color: Colors.blue),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // 지도 핀 위젯
-  Widget _buildMapPin({
-    required double top,
-    required double left,
-    required String label,
-    required bool isGuide,
-  }) {
-    return Positioned(
-      top: top,
-      left: left,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-            ),
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-            ),
-          ),
-          Icon(
-            Icons.location_on,
-            color: isGuide
-                ? AppColors.travelingPurple
-                : AppColors.travelingBlue,
-            size: 35,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 하단 퀵 카드
-  Widget _buildBottomPreviewCard() {
-    return Positioned(
-      bottom: 100, // 탭바 높이 고려
-      left: 20,
-      right: 20,
-      child: Container(
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20)],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(10),
+      body: _currentPosition == null
+          ? const Center(child: CircularProgressIndicator())
+          : GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _currentPosition!,
+                zoom: 12.0, // 동네들이 잘 보이게 약간 멀리서 봅니다
               ),
-              child: const Icon(Icons.person, color: Colors.grey),
+              onMapCreated: (controller) => _controller = controller,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: true,
+              markers: _markers,
             ),
-            const SizedBox(width: 15),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "내 주변 가이드 '김망원'",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                  ),
-                  Text(
-                    "망원동 로컬 맛집 100군데 섭렵",
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward_ios, size: 16),
-          ],
-        ),
-      ),
     );
   }
 }

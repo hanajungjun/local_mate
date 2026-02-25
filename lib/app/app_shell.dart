@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:local_mate/core/constants/app_colors.dart';
 import 'package:local_mate/features/home/pages/home_page.dart';
-import 'package:local_mate/features/travel_list/pages/travel_list_page.dart';
+import 'package:local_mate/features/discover/pages/discover_page.dart';
 import 'package:local_mate/features/map/pages/map_view_page.dart';
-import 'package:local_mate/features/schedule/pages/schedule_page.dart';
-import 'package:local_mate/features/chat/pages/chat_list_page.dart';
+import 'package:local_mate/features/chat/pages/chat_main_page.dart';
 import 'package:local_mate/features/mypage/pages/my_profile_page.dart';
 
 class AppShell extends StatefulWidget {
@@ -31,8 +30,8 @@ class _AppShellState extends State<AppShell> {
         onStartGuide: () => debugPrint("🚀 가이드 시작"),
       ),
       const MapViewPage(), // index 1: 지도(내근처)
-      const TravelListPage(), // index 2: 매칭(스와이프)
-      const ChatListPage(), // index 3: 채팅
+      const DiscoverPage(), // index 2: 매칭(스와이프)
+      const ChatMainPage(), // index 3: 채팅
       const MyProfilePage(), // index 4: 내정보
     ];
 

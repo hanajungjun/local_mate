@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 // import 'package:sign_in_with_apple/sign_in_with_apple.dart'; // ⚠️ 주석
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
-
+import 'package:local_mate/services/login_service.dart';
 import 'package:local_mate/app/app_shell.dart';
 import 'package:local_mate/core/constants/app_colors.dart';
 import 'package:local_mate/shared/styles/text_styles.dart';
@@ -24,6 +24,8 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final supabase = Supabase.instance.client;
   StreamSubscription<AuthState>? _authSub;
+
+  final LoginService _loginService = LoginService(); // 서비스 인스턴스 생성
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -99,12 +101,18 @@ class _LoginPageState extends State<LoginPage> {
     AppToast.show(context, "애플 SDK 설정이 필요합니다.");
   }
 
-  // 🚀 테스트용 하이패스: 로그인 없이 바로 홈으로!
-  void _skipToHome() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const AppShell()),
-    );
+  Future<void> _testLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      // 💡 서비스의 로그인 함수 호출!
+      await _loginService.signInWithEmail('tester@test.com', 'password123');
+
+      // 성공 시 AppShell 이동 로직은 initState의 auth 리스너가 처리해줌
+    } catch (e) {
+      AppToast.show(context, "로그인 실패: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -164,8 +172,8 @@ class _LoginPageState extends State<LoginPage> {
                         // 🎯 [핵심 추가] 테스트용 하이패스 버튼
                         _socialButton(
                           color: Colors.black.withOpacity(0.7),
-                          text: "테스트 모드로 시작하기",
-                          onTap: _skipToHome,
+                          text: "테스트 계정으로 시작하기",
+                          onTap: _testLogin, // 수정된 함수 연결
                           textColor: Colors.white,
                         ),
 
