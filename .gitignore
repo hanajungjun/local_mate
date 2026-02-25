@@ -1,0 +1,29 @@
+# Flutter / Dart
+.dart_tool/
+.build/
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+*.jks
+
+# Mac
+.DS_Store
+
+# Env (나중에 분리 예정)
+.env
+lib/env.dart
