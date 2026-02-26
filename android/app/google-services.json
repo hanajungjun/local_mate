@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "427895096068",
+    "project_id": "localmate-88aad",
+    "storage_bucket": "localmate-88aad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:427895096068:android:5451c93388b40fb9fe4651",
+        "android_client_info": {
+          "package_name": "com.hanajungjun.localmate"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDk2wDciIsJkODeYtjsHlZ1hf8bc34yWNE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -4,7 +4,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:scrollable_clean_calendar/scrollable_clean_calendar.dart';
 import 'package:scrollable_clean_calendar/controllers/clean_calendar_controller.dart';
 import 'package:scrollable_clean_calendar/utils/enums.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
+import 'package:localmate/core/constants/app_colors.dart';
 import 'package:flutter_svg/flutter_svg.dart'; // ✅ SVG 사용을 위한 임포트 추가
 
 class CustomRangeCalendarPage extends StatefulWidget {

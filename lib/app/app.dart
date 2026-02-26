@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
 
-import 'package:local_mate/features/auth/login_page.dart';
-import 'package:local_mate/app/app_shell.dart';
-import 'package:local_mate/app/route_observer.dart';
+import 'package:localmate/features/auth/login_page.dart';
+import 'package:localmate/app/app_shell.dart';
+import 'package:localmate/app/route_observer.dart';
 
 class TravelMemoirApp extends StatefulWidget {
   final bool showOnboarding;

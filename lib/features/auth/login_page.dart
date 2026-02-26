@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'dart:io';
-// import 'package:local_mate/env.dart'; // ⚠️ 주석
 import 'package:flutter/material.dart';
-// import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart'; // ⚠️ 주석
-// import 'package:google_sign_in/google_sign_in.dart'; // ⚠️ 주석
-// import 'package:sign_in_with_apple/sign_in_with_apple.dart'; // ⚠️ 주석
+import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:local_mate/services/login_service.dart';
-import 'package:local_mate/app/app_shell.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
-import 'package:local_mate/shared/styles/text_styles.dart';
-import 'package:local_mate/core/widgets/popup/app_toast.dart';
-import 'package:local_mate/core/widgets/popup/app_dialogs.dart';
+
+import 'package:localmate/env.dart';
+import 'package:localmate/app/app_shell.dart';
+import 'package:localmate/services/login_service.dart';
+import 'package:localmate/core/constants/app_colors.dart';
+import 'package:localmate/shared/styles/text_styles.dart';
+import 'package:localmate/core/widgets/popup/app_toast.dart';
+import 'package:localmate/core/widgets/popup/app_dialogs.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -23,9 +24,8 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final supabase = Supabase.instance.client;
+  final _loginService = LoginService(); // 💡 서비스 인스턴스 활용
   StreamSubscription<AuthState>? _authSub;
-
-  final LoginService _loginService = LoginService(); // 서비스 인스턴스 생성
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -35,31 +35,24 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
+
+    // 1. 서버에서 심사 모드 여부 확인
     _checkReviewMode();
 
-    // 🎯 기존 인증 리스너 유지 (실제 연동 시 작동)
+    // 2. 인증 상태 리스너 (LoginService에 물어보고 화면 전환)
     _authSub = supabase.auth.onAuthStateChange.listen((data) async {
       final user = data.session?.user;
       if (user == null) return;
 
-      // 유저 정보 업데이트 로직 유지
-      _handleAuthSuccess(user);
+      // DB 동기화만 하고 바로 메인으로!
+      await _loginService.syncUserToDatabase(user);
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const AppShell()),
+      );
     });
-  }
-
-  Future<void> _handleAuthSuccess(User user) async {
-    await supabase.from('users').upsert({
-      'auth_uid': user.id,
-      'provider': user.appMetadata['provider'] ?? 'email',
-      'email': user.email,
-      'updated_at': DateTime.now().toIso8601String(),
-    }, onConflict: 'auth_uid');
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const AppShell()),
-    );
   }
 
   Future<void> _checkReviewMode() async {
@@ -68,8 +61,12 @@ class _LoginPageState extends State<LoginPage> {
           .from('app_config')
           .select('is_review_mode')
           .single();
-      if (mounted)
-        setState(() => _isReviewMode = data['is_review_mode'] ?? false);
+
+      if (mounted) {
+        setState(() {
+          _isReviewMode = data['is_review_mode'] ?? false;
+        });
+      }
     } catch (e) {
       debugPrint("⚠️ 심사 모드 로드 실패: $e");
     }
@@ -83,36 +80,91 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // --- 소셜 로그인 함수들 (에러 방지용 주석 처리 및 토스트 메시지) ---
+  // --- 로그인 로직 (LoginService 활용) ---
 
-  Future<void> _loginWithKakao() async {
-    AppToast.show(context, "카카오 SDK 설정이 필요합니다.");
-    /* try {
-      final token = await UserApi.instance.loginWithKakaoAccount();
-      await supabase.auth.signInWithIdToken(provider: OAuthProvider.kakao, idToken: token.idToken!);
-    } catch (e) { debugPrint('Kakao Login Error: $e'); } */
-  }
+  Future<void> _loginWithPassword() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
 
-  Future<void> _loginWithGoogle() async {
-    AppToast.show(context, "구글 SDK 설정이 필요합니다.");
-  }
-
-  Future<void> _loginWithApple() async {
-    AppToast.show(context, "애플 SDK 설정이 필요합니다.");
-  }
-
-  Future<void> _testLogin() async {
+    if (email.isEmpty || password.isEmpty) {
+      AppToast.error(context, 'please_enter_id_pw'.tr());
+      return;
+    }
     setState(() => _isLoading = true);
     try {
-      // 💡 서비스의 로그인 함수 호출!
-      await _loginService.signInWithEmail('tester@test.com', 'password123');
-
-      // 성공 시 AppShell 이동 로직은 initState의 auth 리스너가 처리해줌
+      // 💡 이메일 로그인은 서비스 내부에서 sync까지 처리함
+      await _loginService.signInWithEmail(email, password);
     } catch (e) {
-      AppToast.show(context, "로그인 실패: $e");
+      if (mounted) AppToast.error(context, 'login_failed'.tr());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loginWithKakao() async {
+    try {
+      final token = await UserApi.instance.loginWithKakaoAccount();
+      await supabase.auth.signInWithIdToken(
+        provider: OAuthProvider.kakao,
+        idToken: token.idToken!,
+      );
+    } catch (e) {
+      debugPrint('Kakao Login Error: $e');
+    }
+  }
+
+  Future<void> _loginWithGoogle() async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        serverClientId: AppEnv.serverClientId,
+      );
+      final googleUser = await googleSignIn.signIn();
+      if (googleUser != null) {
+        final auth = await googleUser.authentication;
+        await supabase.auth.signInWithIdToken(
+          provider: OAuthProvider.google,
+          idToken: auth.idToken!,
+          accessToken: auth.accessToken,
+        );
+      }
+    } catch (e) {
+      debugPrint('Google Login Error: $e');
+    }
+  }
+
+  Future<void> _loginWithApple() async {
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+      await supabase.auth.signInWithIdToken(
+        provider: OAuthProvider.apple,
+        idToken: credential.identityToken!,
+      );
+    } catch (e) {
+      debugPrint('Apple Login Error: $e');
+    }
+  }
+
+  Future<void> _loginWithEmail() async {
+    final controller = TextEditingController();
+    AppDialogs.showInput(
+      context: context,
+      title: 'email_login_title',
+      hintText: 'email_hint',
+      controller: controller,
+      confirmLabel: 'send_link',
+      onConfirm: (email) async {
+        await supabase.auth.signInWithOtp(email: email);
+        if (mounted) {
+          Navigator.pop(context);
+          AppToast.show(context, 'check_email_link'.tr());
+        }
+      },
+    );
   }
 
   @override
@@ -132,56 +184,95 @@ class _LoginPageState extends State<LoginPage> {
           ),
           SafeArea(
             child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 27),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 30),
-                    child: Column(
-                      children: [
-                        if (_isReviewMode) _buildIdPwSection(),
-
-                        _socialButton(
-                          iconAsset: 'assets/icons/kakao.png',
-                          color: AppColors.buttonBg,
-                          text: 'login_kakao'.tr(),
-                          onTap: _loginWithKakao,
-                        ),
-                        const SizedBox(height: 10),
-                        _socialButton(
-                          iconAsset: 'assets/icons/google.png',
-                          color: AppColors.buttonBg,
-                          text: 'login_google'.tr(),
-                          onTap: _loginWithGoogle,
-                        ),
-
-                        if (Platform.isIOS) ...[
-                          const SizedBox(height: 10),
-                          _socialButton(
-                            iconAsset: 'assets/icons/apple.png',
-                            text: 'login_apple'.tr(),
-                            onTap: _loginWithApple,
-                            color: AppColors.buttonBg,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight:
+                      MediaQuery.of(context).size.height -
+                      MediaQuery.of(context).padding.top -
+                      MediaQuery.of(context).padding.bottom,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 43),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 120),
+                          Text(
+                            'landing_title'.tr(),
+                            style: AppTextStyles.landingTitle,
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            'landing_subtitle'.tr(),
+                            style: AppTextStyles.landingSubtitle,
                           ),
                         ],
-
-                        const SizedBox(height: 10),
-
-                        // 🎯 [핵심 추가] 테스트용 하이패스 버튼
-                        _socialButton(
-                          color: Colors.black.withOpacity(0.7),
-                          text: "테스트 계정으로 시작하기",
-                          onTap: _testLogin, // 수정된 함수 연결
-                          textColor: Colors.white,
-                        ),
-
-                        const SizedBox(height: 48),
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 27),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 30),
+                      child: Column(
+                        children: [
+                          if (_isReviewMode) ...[
+                            _buildIdPwFields(),
+                            const SizedBox(height: 10),
+                            _socialButton(
+                              color: AppColors.travelingBlue,
+                              text: 'login_sign_in'.tr(),
+                              onTap: _isLoading ? () {} : _loginWithPassword,
+                              textColor: AppColors.textColor02,
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Text(
+                                "────────  OR  ────────",
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                          _socialButton(
+                            iconAsset: 'assets/icons/kakao.png',
+                            color: AppColors.buttonBg,
+                            text: 'login_kakao'.tr(),
+                            onTap: _loginWithKakao,
+                          ),
+                          const SizedBox(height: 10),
+                          _socialButton(
+                            iconAsset: 'assets/icons/google.png',
+                            color: AppColors.buttonBg,
+                            text: 'login_google'.tr(),
+                            onTap: _loginWithGoogle,
+                          ),
+                          if (Platform.isIOS) ...[
+                            const SizedBox(height: 10),
+                            _socialButton(
+                              iconAsset: 'assets/icons/apple.png',
+                              text: 'login_apple'.tr(),
+                              onTap: _loginWithApple,
+                              color: AppColors.buttonBg,
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          _socialButton(
+                            iconAsset: 'assets/icons/mail.png',
+                            color: AppColors.buttonBg,
+                            text: 'login_email'.tr(),
+                            onTap: _loginWithEmail,
+                          ),
+                          const SizedBox(height: 48),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -191,47 +282,21 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 43),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 120),
-          Text('landing_title'.tr(), style: AppTextStyles.landingTitle),
-          const SizedBox(height: 5),
-          Text('landing_subtitle'.tr(), style: AppTextStyles.landingSubtitle),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIdPwSection() {
+  Widget _buildIdPwFields() {
     return Column(
       children: [
         TextField(
           controller: _emailController,
+          style: const TextStyle(color: AppColors.inputText),
+          keyboardType: TextInputType.emailAddress,
           decoration: _inputDeco('아이디를 입력하세요'),
         ),
         const SizedBox(height: 10),
         TextField(
           controller: _passwordController,
+          style: const TextStyle(color: AppColors.inputText),
           obscureText: true,
           decoration: _inputDeco('비밀번호를 입력하세요'),
-        ),
-        const SizedBox(height: 10),
-        _socialButton(
-          color: AppColors.travelingBlue,
-          text: 'login_sign_in'.tr(),
-          onTap: _isLoading ? () {} : () {}, // 임시
-          textColor: AppColors.textColor02,
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 10),
-          child: Text(
-            "────────  OR  ────────",
-            style: TextStyle(color: Colors.white54, fontSize: 12),
-          ),
         ),
       ],
     );
@@ -270,6 +335,9 @@ class _LoginPageState extends State<LoginPage> {
           backgroundColor: color,
           foregroundColor: textColor,
           elevation: 0,
+          side: color == Colors.white
+              ? const BorderSide(color: AppColors.buttonBorder)
+              : null,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         child: Stack(
@@ -278,7 +346,12 @@ class _LoginPageState extends State<LoginPage> {
             if (iconAsset != null)
               Align(
                 alignment: Alignment.centerLeft,
-                child: Image.asset(iconAsset, width: 20, height: 20),
+                child: Image.asset(
+                  iconAsset,
+                  width: 20,
+                  height: 20,
+                  fit: BoxFit.contain,
+                ),
               ),
             Text(
               text,

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:local_mate/env.dart';
+import 'package:localmate/env.dart';
 
 class PaymentService {
   static final _supabase = Supabase.instance.client;

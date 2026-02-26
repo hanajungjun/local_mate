@@ -1,4 +1,4 @@
-package com.example.local_mate
+package com.hanajungjun.localmate
 
 import io.flutter.embedding.android.FlutterActivity
 

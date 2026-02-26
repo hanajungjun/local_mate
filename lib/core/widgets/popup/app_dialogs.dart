@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:typed_data';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
+import 'package:localmate/core/constants/app_colors.dart';
 
 class AppDialogs {
   // 1️⃣ [알림형] 확인 버튼 1개 (단순 안내용)

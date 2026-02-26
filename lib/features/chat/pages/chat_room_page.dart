@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
-import 'package:local_mate/services/chat_service.dart'; // 💡 서비스 추가
+import 'package:localmate/core/constants/app_colors.dart';
+import 'package:localmate/services/chat_service.dart'; // 💡 서비스 추가
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ChatRoomPage extends StatefulWidget {

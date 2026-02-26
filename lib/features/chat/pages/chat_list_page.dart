@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:local_mate/services/discover_service.dart';
-import 'package:local_mate/services/chat_service.dart'; // 💡 추가
+import 'package:localmate/services/discover_service.dart';
+import 'package:localmate/services/chat_service.dart'; // 💡 추가
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'chat_room_page.dart'; // 채팅방 페이지 import
 

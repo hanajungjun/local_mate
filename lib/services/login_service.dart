@@ -23,6 +23,29 @@ class LoginService {
     }
   }
 
+  // ✅ 사용자의 프로필 상태를 확인하는 로직 (서비스로 분리)
+  Future<bool> isNewUser(String userId) async {
+    try {
+      final profile = await _supabase
+          .from('users')
+          .select('nickname')
+          .eq('auth_uid', userId)
+          .maybeSingle();
+
+      // 프로필이 없거나 닉네임이 비어있으면 신규 유저로 판단
+      if (profile == null ||
+          profile['nickname'] == null ||
+          profile['nickname'].toString().isEmpty) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      // 에러 발생 시 안전하게 신규 유저로 처리하거나 로그 출력
+      debugPrint("⚠️ 유저 상태 확인 실패: $e");
+      return true;
+    }
+  }
+
   Future<void> syncUserToDatabase(User user) async {
     try {
       // 💡 upsert 시 'onConflict' 옵션을 명시하면 더 안전합니다.

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
-import 'package:local_mate/shared/styles/text_styles.dart';
+import 'package:localmate/core/constants/app_colors.dart';
+import 'package:localmate/shared/styles/text_styles.dart';
 
 class RegionTravelCountCard extends StatelessWidget {
   final String regionName;

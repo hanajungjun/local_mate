@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
-import 'package:local_mate/shared/styles/text_styles.dart';
-import 'package:local_mate/storage_urls.dart';
+import 'package:localmate/core/constants/app_colors.dart';
+import 'package:localmate/shared/styles/text_styles.dart';
+import 'package:localmate/storage_urls.dart';
 
 class TravelCard extends StatelessWidget {
   final Map<String, dynamic> travel;

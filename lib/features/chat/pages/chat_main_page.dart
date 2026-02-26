@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
+import 'package:localmate/core/constants/app_colors.dart';
 import 'chat_list_page.dart';
 import 'like_list_page.dart';
 

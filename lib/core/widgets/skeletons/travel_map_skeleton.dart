@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
-import 'package:local_mate/core/widgets/skeletons/skeleton_box.dart';
+import 'package:localmate/core/constants/app_colors.dart';
+import 'package:localmate/core/widgets/skeletons/skeleton_box.dart';
 
 class TravelMapSkeleton extends StatelessWidget {
   const TravelMapSkeleton({super.key});

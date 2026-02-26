@@ -3,7 +3,7 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
-// import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart'; // 에러 방지 주석
+import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart'; // 에러 방지 주석
 import 'package:supabase_flutter/supabase_flutter.dart';
 // import 'package:google_mobile_ads/google_mobile_ads.dart'; // 에러 방지 주석
 // import 'package:firebase_core/firebase_core.dart'; // 에러 방지 주석
@@ -13,13 +13,13 @@ import 'package:easy_localization/easy_localization.dart';
 // import 'package:purchases_flutter/purchases_flutter.dart'; // 에러 방지 주석
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:permission_handler/permission_handler.dart';
-// import 'package:local_mate/app/route_observer.dart'; // 에러 방지 주석
+// import 'package:localmate/app/route_observer.dart'; // 에러 방지 주석
 // import 'services/network_service.dart'; // 에러 방지 주석
 // import 'firebase_options.dart'; // 에러 방지 주석
 // import 'services/prompt_cache.dart'; // 에러 방지 주석
 import 'env.dart';
 import 'app/app.dart';
-// import 'package:local_mate/services/country_service.dart'; // 에러 방지 주석
+// import 'package:localmate/services/country_service.dart'; // 에러 방지 주석
 
 /**
  * 🚀 Local Mate 앱 진입점
@@ -30,6 +30,22 @@ import 'app/app.dart';
 // Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 //   // Firebase 미설정 시 에러 방지 주석
 // }
+// 🔔 알림 권한 시스템 팝업 요청 함수
+Future<void> _initNotificationPermission() async {
+  // 알림 권한 상태 체크
+  var status = await Permission.notification.status;
+
+  if (status.isDenied) {
+    // 💡 거절된 상태라면 유저에게 팝업을 띄워 요청합니다.
+    await Permission.notification.request();
+  }
+
+  if (await Permission.notification.isGranted) {
+    debugPrint('🔔 알림 권한 승인됨');
+  } else {
+    debugPrint('🔕 알림 권한 거절됨');
+  }
+}
 
 Future<void> _initMediaStorePermission() async {
   if (Platform.isAndroid) {
@@ -78,10 +94,10 @@ Future<void> main() async {
 
   await initializeDateFormatting('ko_KR', null);
 
-  // --- 추가 서비스 주석 ---
-  // KakaoSdk.init(...);
-  // await _initRevenueCat();
-  // ----------------------
+  KakaoSdk.init(
+    nativeAppKey: AppEnv.kakaoNativeAppKey,
+    javaScriptAppKey: AppEnv.kakaoJavaScriptKey,
+  );
 
   runApp(
     EasyLocalization(
@@ -117,7 +133,9 @@ class _TravelMemoirAppWrapperState extends State<_TravelMemoirAppWrapper> {
   @override
   void initState() {
     super.initState();
-    _initMediaStorePermission();
+    _initNotificationPermission(); // 알림 권한
+    _initMediaStorePermission(); // 갤러리 권한 (사진/영상)
+    Permission.location.request();
 
     // 로딩 화면을 1초간 보여준 후 메인으로 진입
     Future.delayed(const Duration(seconds: 1), () {

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
-import 'package:local_mate/core/constants/app_colors.dart';
-import 'package:local_mate/services/discover_service.dart';
-import 'profile_detail_page.dart';
+import 'package:localmate/core/constants/app_colors.dart';
+import 'package:localmate/services/discover_service.dart';
+import 'guide_detail_page.dart';
 
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
@@ -94,7 +94,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => ProfileDetailPage(
+                                  builder: (context) => GuideDetailPage(
                                     user: _users[index],
                                     onSwipeAction: (direction) {
                                       if (direction == 'left') {

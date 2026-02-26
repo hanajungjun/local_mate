@@ -1,4 +1,4 @@
-# local_mate
+# localmate
 
 A new Flutter project.
 
