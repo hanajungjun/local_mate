@@ -3,6 +3,7 @@ import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/discover_service.dart';
 import 'guide_detail_page.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
@@ -17,6 +18,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   List<Map<String, dynamic>> _users = [];
   bool _isLoading = true;
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -32,6 +34,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
           _users = mates;
           _isLoading = false;
         });
+
+        for (var user in mates) {
+          final images = user['profile_image'];
+          if (images is List && images.isNotEmpty) {
+            precacheImage(
+              CachedNetworkImageProvider(images[0].toString()),
+              context,
+            );
+          }
+        }
       }
     } catch (e) {
       debugPrint('데이터 로드 실패: $e');
@@ -43,7 +55,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      // --- 상단 앱바 수정 (필터 & 상점 버튼) ---
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.storefront, color: Colors.black),
@@ -78,7 +89,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
             : Stack(
                 alignment: Alignment.center,
                 children: [
-                  // 1. 카드 레이어
                   Positioned.fill(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(0, 0, 0, 140),
@@ -113,23 +123,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
                             },
                             child: _buildUserCard(_users[index]),
                           );
-                        }, // cardBuilder 닫기
+                        },
                         onSwipe: (previousIndex, currentIndex, direction) {
-                          if (direction == CardSwiperDirection.right) {
-                            _discoverService.sendLike(
-                              _users[previousIndex]['id'].toString(),
-                            );
-                            _showLikeSnackBar(
-                              _users[previousIndex]['nickname'],
-                            );
+                          if (currentIndex != null) {
+                            setState(() => _currentIndex = currentIndex);
                           }
                           return true;
                         },
                       ),
                     ),
                   ),
-
-                  // 2. 하단 버튼 레이어
                   Positioned(bottom: 30, child: _buildActionButtons()),
                 ],
               ),
@@ -137,7 +140,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
-  // --- 좌우 꽉 찬 카드 디자인 ---
   Widget _buildUserCard(Map<String, dynamic> user) {
     final List<dynamic> images = user['profile_image'] is List
         ? user['profile_image']
@@ -146,80 +148,87 @@ class _DiscoverPageState extends State<DiscoverPage> {
         ? images[0].toString()
         : 'https://picsum.photos/600/800';
 
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      decoration: BoxDecoration(
-        // 좌우를 꽉 채우기 위해 보더 래디우스를 살짝 조절하거나 제거 가능
-        borderRadius: BorderRadius.circular(0),
-        image: DecorationImage(
-          image: NetworkImage(imageUrl),
-          fit: BoxFit.cover, // 이미지가 꽉 차도록 설정
-        ),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
-            stops: const [0.5, 1.0],
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(0),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => Container(
+              color: Colors.grey[300],
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+            errorWidget: (context, url, error) => Container(
+              color: Colors.grey[400],
+              child: const Icon(Icons.person, size: 80, color: Colors.white),
+            ),
           ),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "${user['nickname'] ?? '이름 없음'}, ${user['age'] ?? '??'}",
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
+                stops: const [0.5, 1.0],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              "${user['nationality'] ?? '지구인'} | ${user['mbti'] ?? 'MBTI'}",
-              style: const TextStyle(color: Colors.white70, fontSize: 18),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              user['bio'] ?? '',
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 20),
-            // 관심사 태그
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: (user['interests'] as List? ?? [])
-                  .map(
-                    (i) => Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        i.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "${user['nickname'] ?? '이름 없음'}, ${user['age'] ?? '??'}",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "${user['nationality'] ?? '지구인'} | ${user['mbti'] ?? 'MBTI'}",
+                  style: const TextStyle(color: Colors.white70, fontSize: 18),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  user['bio'] ?? '',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: (user['interests'] as List? ?? [])
+                      .map(
+                        (i) => Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            i.toString(),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  )
-                  .toList(),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 20),
+              ],
             ),
-            const SizedBox(height: 20), // 텍스트가 너무 하단에 붙지 않게 여백
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -249,11 +258,29 @@ class _DiscoverPageState extends State<DiscoverPage> {
           () => _controller.swipe(CardSwiperDirection.top),
         ),
         const SizedBox(width: 25),
-        _circleButton(
-          Icons.favorite,
-          Colors.green,
-          () => _controller.swipe(CardSwiperDirection.right),
-        ),
+        // ✅ 좋아요 → DB 저장 + 리스트에서 제거
+        _circleButton(Icons.favorite, Colors.green, () async {
+          if (_users.isEmpty) return;
+
+          final targetUser = _users[_currentIndex];
+
+          // 1. DB에 좋아요 저장
+          await _discoverService.sendLike(targetUser['id'].toString());
+
+          // 2. 스낵바 표시
+          _showLikeSnackBar(targetUser['nickname']);
+
+          // 3. 카드 스와이프 (애니메이션)
+          _controller.swipe(CardSwiperDirection.right);
+
+          // 4. 리스트에서 제거 + 인덱스 보정
+          setState(() {
+            _users.removeAt(_currentIndex);
+            if (_currentIndex >= _users.length && _currentIndex > 0) {
+              _currentIndex = _users.length - 1;
+            }
+          });
+        }),
       ],
     );
   }

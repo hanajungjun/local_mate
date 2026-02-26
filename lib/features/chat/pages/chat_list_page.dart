@@ -22,53 +22,56 @@ class _ChatListPageState extends State<ChatListPage> {
   void initState() {
     super.initState();
     _loadData();
+
+    // ✅ chat_rooms 변경 감지 → 자동 갱신
+    Supabase.instance.client
+        .from('chat_rooms')
+        .stream(primaryKey: ['id'])
+        .listen((_) {
+          if (mounted) _loadData();
+        });
   }
 
   void _loadData() async {
-    // 1. 전체 매칭된 유저 가져오기
     final allMatches = await _discoverService.fetchMatches();
     final myId = Supabase.instance.client.auth.currentUser!.id;
 
-    // 2. 현재 내가 참여 중인 대화방 목록 가져오기 (가상 테이블 사용 가능)
+    // ✅ chat_rooms 직접 조회 대신 my_chat_rooms 뷰 사용
     final roomsResponse = await Supabase.instance.client
-        .from('chat_rooms')
-        .select('participant_a, participant_b');
+        .from('my_chat_rooms')
+        .select('other_participant_id'); // 👈 이미 계산된 컬럼 바로 사용
 
-    // 3. 이미 대화 중인 상대방의 ID들만 Set으로 추출
-    final existingChatUserIds = (roomsResponse as List).map((room) {
-      return room['participant_a'] == myId
-          ? room['participant_b']
-          : room['participant_a'];
-    }).toSet();
+    final existingChatUserIds = (roomsResponse as List)
+        .map((room) => room['other_participant_id'].toString())
+        .toSet();
 
     if (mounted) {
       setState(() {
-        // 💡 핵심: 전체 매칭 중 '이미 대화방이 있는 사람'은 제외!
         _matches = allMatches.where((user) {
           return !existingChatUserIds.contains(user['id']);
         }).toList();
-
         _isLoading = false;
       });
     }
   }
 
-  // 🎯 프사 클릭 시 실행될 로직
   void _startChat(Map<String, dynamic> targetUser) async {
     final myId = Supabase.instance.client.auth.currentUser!.id;
     final targetId = targetUser['id'];
 
-    // 💡 서비스에서 방 가져오기 또는 생성
     final roomId = await _chatService.getOrCreateRoom(myId, targetId);
 
     if (mounted) {
-      Navigator.push(
+      // ✅ 채팅방 이동 후 돌아오면 자동으로 목록 갱신
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) =>
               ChatRoomPage(roomId: roomId, targetUser: targetUser),
         ),
       );
+      // ✅ 채팅방에서 돌아왔을 때 새로고침
+      _loadData();
     }
   }
 
