@@ -1,102 +1,177 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/features/matching/pages/guide_registration_page.dart';
+import 'package:localmate/services/schedule_service.dart';
+import 'package:localmate/services/user_service.dart';
+import 'package:localmate/core/utils/date_utils.dart';
 
-class GuideMode extends StatelessWidget {
+class GuideMode extends StatefulWidget {
   final VoidCallback? onStartGuide;
   const GuideMode({super.key, this.onStartGuide});
 
   @override
+  State<GuideMode> createState() => _GuideModeState();
+}
+
+class _GuideModeState extends State<GuideMode> {
+  late Future<List<Map<String, dynamic>>> _schedulesFuture;
+  String _guideStatus = 'none'; // none, pending, approved, rejected
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  // 초기 데이터 로드 (프로필 상태 + 일정)
+  Future<void> _loadInitialData() async {
+    _refreshSchedules();
+    final profile = await UserService().getMyProfile();
+    if (profile != null) {
+      setState(() {
+        _guideStatus = profile['guide_status'] ?? 'none';
+      });
+    }
+  }
+
+  // 새로고침 로직
+  Future<void> _refresh() async {
+    await _loadInitialData();
+  }
+
+  void _refreshSchedules() {
+    setState(() {
+      _schedulesFuture = ScheduleService().getGuideSchedules();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 27),
-          child: Text(
-            "가이드 활동 관리",
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.travelingPurple,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 27),
+              child: Column(
+                children: [
+                  _buildGuideStatusBanner(context), // 동적 배너로 교체
+                  const SizedBox(height: 12),
+                  _buildActionCard(
+                    title: "동네 가이드 활동",
+                    subtitle: "내 주변 여행 요청에 제안하기",
+                    icon: Icons.map_outlined,
+                    color: AppColors.travelingPurple,
+                    onTap: widget.onStartGuide ?? () {},
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 35),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _schedulesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 160,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final schedules = snapshot.data ?? [];
+                if (schedules.isEmpty) {
+                  return _buildEmptyScheduleSection(AppColors.travelingPurple);
+                }
+                return _buildScheduleSection(
+                  AppColors.travelingPurple,
+                  schedules,
+                );
+              },
+            ),
+            const SizedBox(height: 100),
+          ],
         ),
-        const SizedBox(height: 15),
-
-        // 1. 가이드 전용 배너 (퍼플 그라데이션)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 27),
-          child: _buildGuideRegistrationBanner(context),
-        ),
-
-        const SizedBox(height: 12),
-
-        // 2. 가이드용 액션 카드 (퍼플)
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 27),
-          child: _buildActionCard(
-            title: "동네 가이드 활동",
-            subtitle: "내 주변 여행 요청에 제안하기",
-            icon: Icons.map_outlined,
-            color: AppColors.travelingPurple,
-            onTap: onStartGuide ?? () {},
-          ),
-        ),
-
-        const SizedBox(height: 35),
-
-        // 3. 가이드용 일정 섹션 (퍼플)
-        _buildScheduleSection(AppColors.travelingPurple),
-
-        const SizedBox(height: 100),
-      ],
+      ),
     );
   }
 
-  Widget _buildGuideRegistrationBanner(BuildContext context) {
+  // ✅ 가이드 상태에 따라 변하는 동적 배너
+  Widget _buildGuideStatusBanner(BuildContext context) {
+    String message = "활동을 위해 가이드 프로필을 등록하세요!";
+    String buttonText = "등록";
+    bool showButton = true;
+    IconData icon = Icons.info_outline;
+
+    if (_guideStatus == 'pending') {
+      message = "가이드 승인 대기 중입니다. ✨";
+      showButton = false;
+      icon = Icons.hourglass_top_rounded;
+    } else if (_guideStatus == 'approved') {
+      message = "축하합니다! 공식 가이드로 활동 중입니다. 🏆";
+      showButton = false;
+      icon = Icons.verified_user_rounded;
+    } else if (_guideStatus == 'rejected') {
+      message = "가이드 승인이 거절되었습니다. 서류를 확인해주세요.";
+      buttonText = "재등록";
+      showButton = true;
+      icon = Icons.error_outline_rounded;
+    }
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF8E2DE2), Color(0xFF4A00E0)],
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.travelingPurple,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "가이드 미등록 상태",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+          Icon(icon, color: Colors.white70, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (showButton)
+            TextButton(
+              // ✅ 기존 배너 함수 내 Navigator 부분 수정
+              onPressed: () async {
+                // 1. 가이드 등록 페이지로 이동하고, 돌아올 때까지 기다립니다.
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const GuideRegistrationPage(),
                   ),
+                );
+
+                // 2. 돌아오자마자 데이터를 새로고침합니다! (이게 핵심)
+                _loadInitialData();
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.white,
+                minimumSize: const Size(60, 30),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                SizedBox(height: 4),
-                Text(
-                  "활동을 위해 프로필을 등록하세요!",
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              child: Text(
+                buttonText,
+                style: const TextStyle(
+                  color: AppColors.travelingPurple,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
                 ),
-              ],
+              ),
             ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // ✅ 등록하기 페이지로 이동
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const GuideRegistrationPage(),
-                ),
-              );
-            },
-            child: const Text(
-              "등록하기",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
         ],
       ),
     );
@@ -111,21 +186,22 @@ class GuideMode extends StatelessWidget {
   }) {
     return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.2), width: 1),
         ),
         child: Row(
           children: [
             CircleAvatar(
               backgroundColor: color.withOpacity(0.1),
-              radius: 25,
-              child: Icon(icon, color: color, size: 28),
+              radius: 20,
+              child: Icon(icon, color: color, size: 22),
             ),
-            const SizedBox(width: 15),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,21 +209,21 @@ class GuideMode extends StatelessWidget {
                   Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 17,
+                      fontSize: 15,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Text(
                     subtitle,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.arrow_forward_ios_rounded,
-              size: 18,
-              color: Colors.grey,
+              size: 14,
+              color: color.withOpacity(0.4),
             ),
           ],
         ),
@@ -155,77 +231,145 @@ class GuideMode extends StatelessWidget {
     );
   }
 
-  Widget _buildScheduleSection(Color color) {
+  Widget _buildScheduleSection(
+    Color color,
+    List<Map<String, dynamic>> schedules,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 27),
-          child: Text(
-            "가이드 일정",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 160,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 27),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildScheduleCard(
-                "3월 20일 (금)",
-                "11:00",
-                "행궁동 출사 나들이",
-                "여행자 이사진",
-                color,
+              const Text(
+                "가이드 일정",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                "총 ${schedules.length}건",
+                style: TextStyle(
+                  color: color,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 10),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(left: 27, right: 27, bottom: 40),
+          itemCount: schedules.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final item = schedules[index];
+            final DateTime tripDate = DateTime.parse(item['trip_date']);
+            final String formattedDate = DateUtilsHelper.formatScheduleDate(
+              tripDate,
+            );
+            return _buildVerticalScheduleCard(
+              formattedDate,
+              item['title'] ?? "제목 없음",
+              (item['current_people'] ?? 0) > 0 ? "예약됨" : "모집 중",
+              color,
+            );
+          },
         ),
       ],
     );
   }
 
-  Widget _buildScheduleCard(
+  Widget _buildVerticalScheduleCard(
     String date,
-    String time,
     String title,
-    String partner,
+    String status,
     Color color,
   ) {
     return Container(
-      width: 260,
-      margin: const EdgeInsets.symmetric(horizontal: 5),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            date,
-            style: TextStyle(
+          Container(
+            width: 4,
+            height: 40,
+            decoration: BoxDecoration(
               color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            maxLines: 1,
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  date,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
-          const Spacer(),
-          Text(
-            partner,
-            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              status,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyScheduleSection(Color color) {
+    return SizedBox(
+      height: 160,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.event_busy_outlined,
+              color: Colors.grey.shade300,
+              size: 50,
+            ),
+            const SizedBox(height: 15),
+            const Text(
+              "확정된 가이드 일정이 없습니다.",
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+          ],
+        ),
       ),
     );
   }

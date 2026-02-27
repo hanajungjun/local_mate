@@ -2,6 +2,13 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:intl/intl.dart';
 
 class DateUtilsHelper {
+  /// 📅 여행 일정용 포맷 (예: 3월 15일 (일))
+  static String formatScheduleDate(DateTime date) {
+    // ko_KR 기준으로는 'M월 d일 (E)' 포맷을 사용합니다.
+    // 'E'는 '월', '화' 같은 짧은 요일을 반환합니다.
+    return DateFormat('M월 d일 (E)', 'ko_KR').format(date);
+  }
+
   /// 🗓 오늘 날짜를 언어 설정에 맞게 반환 (예: 12월 12일 금요일 / Friday, Dec 12)
   static String todayText() {
     final now = DateTime.now();
