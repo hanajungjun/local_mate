@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/login_service.dart';
-import 'package:localmate/services/user_service.dart';
+import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/features/auth/login_page.dart';
 import 'package:localmate/features/mypage/profile/profile_edit_page.dart';
 
@@ -15,7 +15,7 @@ class MyProfilePage extends StatefulWidget {
 
 class _MyProfilePageState extends State<MyProfilePage> {
   final _loginService = LoginService();
-  final _userService = UserService(); // ✅ 유저 정보 엔진
+  final _profileService = ProfileService(); // ✅ 유저 정보 엔진
 
   Map<String, dynamic>? _profileData;
   bool _isLoading = true;
@@ -28,7 +28,7 @@ class _MyProfilePageState extends State<MyProfilePage> {
 
   Future<void> _loadMyProfile() async {
     setState(() => _isLoading = true);
-    final data = await _userService.getMyProfile(); //
+    final data = await _profileService.getMyProfile(); //
     setState(() {
       _profileData = data;
       _isLoading = false;

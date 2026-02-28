@@ -20,13 +20,16 @@ class ScheduleService {
 
   // 가이드 일정 가져오기
   Future<List<Map<String, dynamic>>> getGuideSchedules() async {
-    final userId = currentUserId;
-    if (userId == null) return [];
+    final myId = Supabase.instance.client.auth.currentUser?.id;
+    if (myId == null) return [];
 
-    return await _supabase
-        .from('guide_schedules')
-        .select()
-        .eq('guide_id', userId)
+    // ✅ guide_schedules 대신 실제 데이터가 쌓이는 user_schedules를 조회합니다.
+    final data = await Supabase.instance.client
+        .from('user_schedules')
+        .select('*')
+        .eq('guide_id', myId) // 💡 내가 가이드인 일정만!
         .order('trip_date', ascending: true);
+
+    return List<Map<String, dynamic>>.from(data);
   }
 }

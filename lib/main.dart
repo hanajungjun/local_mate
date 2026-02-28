@@ -17,6 +17,7 @@ import 'package:permission_handler/permission_handler.dart';
 // import 'services/network_service.dart'; // 에러 방지 주석
 // import 'firebase_options.dart'; // 에러 방지 주석
 // import 'services/prompt_cache.dart'; // 에러 방지 주석
+import 'package:localmate/app/app_shell.dart';
 import 'env.dart';
 import 'app/app.dart';
 // import 'package:localmate/services/country_service.dart'; // 에러 방지 주석
@@ -105,7 +106,7 @@ Future<void> main() async {
       path: 'assets/translations',
       fallbackLocale: const Locale('ko'),
       useOnlyLangCode: true,
-      child: _TravelMemoirAppWrapper(
+      child: _LocalMateAppWrapper(
         showOnboarding: !onboardingDone,
         adminLoadingImageUrl: null,
       ),
@@ -113,21 +114,20 @@ Future<void> main() async {
   );
 }
 
-class _TravelMemoirAppWrapper extends StatefulWidget {
+class _LocalMateAppWrapper extends StatefulWidget {
   final bool showOnboarding;
   final String? adminLoadingImageUrl;
 
-  const _TravelMemoirAppWrapper({
+  const _LocalMateAppWrapper({
     required this.showOnboarding,
     this.adminLoadingImageUrl,
   });
 
   @override
-  State<_TravelMemoirAppWrapper> createState() =>
-      _TravelMemoirAppWrapperState();
+  State<_LocalMateAppWrapper> createState() => _LocalMateAppWrapperState();
 }
 
-class _TravelMemoirAppWrapperState extends State<_TravelMemoirAppWrapper> {
+class _LocalMateAppWrapperState extends State<_LocalMateAppWrapper> {
   bool _isLoadingComplete = false;
 
   @override
@@ -151,9 +151,9 @@ class _TravelMemoirAppWrapperState extends State<_TravelMemoirAppWrapper> {
       return _DynamicLoadingScreen(imageUrl: widget.adminLoadingImageUrl);
     }
 
-    // NetworkService 연결 체크 로직을 일단 건너뛰고 바로 앱 실행
-    return TravelMemoirApp(
-      key: const ValueKey('MainApp'),
+    // ✅ 기존 ValueKey를 지우고 우리가 만든 appShellKey를 꽂아줍니다.
+    return LocalMateApp(
+      key: appShellKey,
       showOnboarding: widget.showOnboarding,
     );
   }

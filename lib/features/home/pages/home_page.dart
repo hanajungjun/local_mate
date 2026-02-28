@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/user_service.dart';
+import 'package:localmate/services/profile_service.dart';
 import 'travel_mode.dart';
 import 'guide_mode.dart';
 
@@ -8,12 +9,14 @@ class HomePage extends StatefulWidget {
   final VoidCallback onGoToTravel;
   final VoidCallback? onStartRequest;
   final VoidCallback? onStartGuide;
+  final Function(bool isTraveler)? onModeChanged;
 
   const HomePage({
     super.key,
     required this.onGoToTravel,
     this.onStartRequest,
     this.onStartGuide,
+    this.onModeChanged,
   });
 
   @override
@@ -32,7 +35,7 @@ class _HomePageState extends State<HomePage> {
   // DB에서 마지막 모드 설정 가져오기
   Future<void> _loadUserMode() async {
     try {
-      final profile = await UserService().getMyProfile();
+      final profile = await ProfileService().getMyProfile();
       if (profile != null && profile['last_mode'] != null) {
         setState(() {
           _isTravelerMode = profile['last_mode'] == 'traveler';
@@ -51,6 +54,10 @@ class _HomePageState extends State<HomePage> {
 
     try {
       await UserService().updateLastMode(travelerMode ? 'traveler' : 'guide');
+      // ✅ 추가: 부모 위젯(MainScreen)에게 모드가 바뀌었다고 알림
+      if (widget.onModeChanged != null) {
+        widget.onModeChanged!(travelerMode);
+      }
     } catch (e) {
       debugPrint("모드 저장 실패: $e");
     }

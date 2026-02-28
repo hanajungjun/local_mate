@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:localmate/core/utils/date_utils.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/features/matching/pages/request_create_page.dart';
+import 'package:localmate/features/matching/pages/received_offers_page.dart';
 import 'package:localmate/services/schedule_service.dart';
+import 'package:localmate/services/discover_service.dart';
 
 class TravelMode extends StatefulWidget {
   final VoidCallback? onStartRequest;
@@ -14,16 +16,20 @@ class TravelMode extends StatefulWidget {
 
 class _TravelModeState extends State<TravelMode> {
   late Future<List<Map<String, dynamic>>> _schedulesFuture;
+  // ✅ 추가: 내 공고 현황 데이터
+  late Future<List<Map<String, dynamic>>> _requestsFuture;
 
   @override
   void initState() {
     super.initState();
-    _schedulesFuture = ScheduleService().getUserSchedules();
+    _refresh();
   }
 
   Future<void> _refresh() async {
     setState(() {
       _schedulesFuture = ScheduleService().getUserSchedules();
+      // ✅ 데이터 새로고침 시 공고 현황도 함께 갱신
+      _requestsFuture = DiscoverService().fetchMyTravelRequests();
     });
   }
 
@@ -46,7 +52,7 @@ class _TravelModeState extends State<TravelMode> {
               ),
             ),
             const SizedBox(height: 15),
-
+            // 1. 공고 올리기 액션 카드
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 27),
               child: _buildActionCard(
@@ -55,38 +61,42 @@ class _TravelModeState extends State<TravelMode> {
                 icon: Icons.send_to_mobile_rounded,
                 color: AppColors.travelingBlue,
                 onTap: () {
-                  if (widget.onStartRequest != null) {
+                  if (widget.onStartRequest != null)
                     widget.onStartRequest!();
-                  } else {
+                  else
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const RequestCreatePage(),
+                        builder: (_) => const RequestCreatePage(),
                       ),
                     );
-                  }
                 },
               ),
             ),
 
-            const SizedBox(height: 35),
+            const SizedBox(height: 30),
 
+            // 🎯 ✅ 2. [신규 추가] 실시간 제안 현황 섹션
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _requestsFuture,
+              builder: (context, snapshot) {
+                // 공고 자체가 아예 없으면 아무것도 안 보여줌
+                if (!snapshot.hasData || snapshot.data!.isEmpty)
+                  return const SizedBox.shrink();
+
+                // 공고가 하나라도 있으면 리스트를 보여줌 (제안이 0건이어도 포함)
+                return _buildRequestStatusSection(snapshot.data!);
+              },
+            ),
+
+            // 3. 나의 여행 일정 (기존 코드)
             FutureBuilder<List<Map<String, dynamic>>>(
               future: _schedulesFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    height: 160,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-
+                // ... 기존 FutureBuilder 로직 동일 ...
                 final schedules = snapshot.data ?? [];
-
-                if (schedules.isEmpty) {
+                if (schedules.isEmpty)
                   return _buildEmptyScheduleSection(AppColors.travelingBlue);
-                }
-
                 return _buildScheduleSection(
                   AppColors.travelingBlue,
                   schedules,
@@ -326,6 +336,116 @@ class _TravelModeState extends State<TravelMode> {
           ),
         ],
       ),
+    );
+  }
+
+  /// ✅ 실시간 제안 현황 위젯 (가로 스크롤 또는 리스트 형태)
+  Widget _buildRequestStatusSection(List<Map<String, dynamic>> requests) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 27, vertical: 10),
+          child: Text(
+            "내 여행 공고 상태",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 27),
+          itemCount: requests.length,
+          itemBuilder: (context, index) {
+            final req = requests[index];
+            // 제안 개수 파악
+            final offerCount =
+                (req['offers'] != null && (req['offers'] as List).isNotEmpty)
+                ? req['offers'][0]['count']
+                : 0;
+
+            final hasOffers = offerCount > 0;
+
+            return GestureDetector(
+              onTap: () {
+                // 제안이 있든 없든 상세 관리 페이지로 이동
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ReceivedOffersPage(
+                      requestId: req['id'],
+                      requestTitle: req['title'],
+                    ),
+                  ),
+                );
+              },
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: hasOffers
+                      ? Colors.blue.shade50
+                      : Colors.white, // 제안 있으면 강조
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: hasOffers
+                        ? Colors.blue.shade200
+                        : Colors.grey.shade200,
+                    width: hasOffers ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    // 제안 여부에 따른 아이콘 변경
+                    Icon(
+                      hasOffers
+                          ? Icons.notifications_active
+                          : Icons.hourglass_empty_rounded,
+                      color: hasOffers ? Colors.blue : Colors.grey,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            req['title'],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          // 텍스트로 상태 설명
+                          Text(
+                            hasOffers
+                                ? "새로운 제안 $offerCount건이 도착했어요!"
+                                : "가이드의 제안을 기다리는 중이에요.",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: hasOffers
+                                  ? Colors.blue.shade700
+                                  : Colors.grey.shade600,
+                              fontWeight: hasOffers
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                      color: hasOffers ? Colors.blue : Colors.grey,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

@@ -106,7 +106,7 @@ class DiscoverDetailPage extends StatelessWidget {
 
                       const SizedBox(height: 12),
                       Text(
-                        "${user['nationality']} | ${user['mbti']} | ${user['location_name']}",
+                        "${user['nationality']} | ${user['mbti']} | ${user['location_names']}",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.grey,

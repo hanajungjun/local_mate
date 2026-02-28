@@ -51,7 +51,6 @@
     <string>프로필 사진이나 게시물 사진 촬영을 위해 카메라 권한이 필요합니다.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>갤러리에서 사진을 선택하여 등록하기 위해 사진첩 접근 권한이 필요합니다.</string>
-
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
     <key>UIMainStoryboardFile</key>

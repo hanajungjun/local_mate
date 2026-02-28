@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
-import 'package:localmate/services/user_service.dart';
+import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/app/app_shell.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/core/widgets/popup/app_toast.dart';
@@ -19,13 +19,14 @@ class ProfileEditPage extends StatefulWidget {
 class _ProfileEditPageState extends State<ProfileEditPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final _userService = UserService();
+  final _profileService = ProfileService();
   bool _isLoading = false;
 
-  // 1. 공통 및 Mate 컨트롤러/변수
+  // ── 내 프로필 ──────────────────────────────────────
   final _nicknameController = TextEditingController();
   final _bioController = TextEditingController();
-  final _ageController = TextEditingController();
+  final _ageController = TextEditingController(); // 생년월일→나이 자동계산 저장용
+  final _nationalityController = TextEditingController(); // ✅ 국적
   String? _gender;
   String? _mbti;
   List<String> _selectedTravelStyles = [];
@@ -33,8 +34,8 @@ class _ProfileEditPageState extends State<ProfileEditPage>
   List<AssetEntity> _selectedAssets = [];
   List<String> _serverImageUrls = [];
 
-  // 2. Guide 컨트롤러/변수
-  final _locationController = TextEditingController();
+  // ── 가이드 등록 ────────────────────────────────────
+  List<String> _selectedLocations = [];
   final _residenceController = TextEditingController();
   final _guideBioController = TextEditingController();
   List<String> _selectedSpecialties = [];
@@ -47,79 +48,108 @@ class _ProfileEditPageState extends State<ProfileEditPage>
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    final data = await _userService.getMyProfile();
-    if (data != null) {
-      setState(() {
-        _nicknameController.text = data['nickname'] ?? '';
-        _bioController.text = data['bio'] ?? '';
-        _ageController.text = data['age']?.toString() ?? '';
-        _gender = data['gender'];
-        _mbti = data['mbti'];
-        _selectedTravelStyles = List<String>.from(data['travel_style'] ?? []);
-        _selectedLanguages = List<String>.from(data['languages'] ?? []);
-        _serverImageUrls = List<String>.from(data['profile_image'] ?? []);
-
-        if (data['guides'] != null) {
-          final g = data['guides'];
-          _guideBioController.text = g['guide_bio'] ?? '';
-          _locationController.text = g['location_name'] ?? '';
-          _residenceController.text = g['residence_period'] ?? '';
-          _selectedSpecialties = List<String>.from(g['specialties'] ?? []);
-          _selectedLanguageLevels = Map<String, int>.from(
-            g['language_levels'] ?? {},
-          );
-        }
-      });
-    }
-    setState(() => _isLoading = false);
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _nicknameController.dispose();
+    _bioController.dispose();
+    _ageController.dispose();
+    _nationalityController.dispose();
+    _residenceController.dispose();
+    _guideBioController.dispose();
+    super.dispose();
   }
 
-  // ✅ 갤러리에서 사진 선택 로직 (ProfileEditPage 내부에 추가)
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = await _profileService.getMyProfile();
+      if (data != null) {
+        setState(() {
+          _nicknameController.text = data['nickname'] ?? '';
+          _bioController.text = data['bio'] ?? '';
+          _ageController.text = data['age']?.toString() ?? '';
+          _nationalityController.text = data['nationality'] ?? ''; // ✅
+          _gender = data['gender'];
+          _mbti = data['mbti'];
+          _selectedTravelStyles = List<String>.from(data['travel_style'] ?? []);
+          _selectedLanguages = List<String>.from(data['languages'] ?? []);
+          _serverImageUrls = List<String>.from(data['profile_image'] ?? []);
+
+          if (data['guides'] != null) {
+            final g = data['guides'];
+            _guideBioController.text = g['guide_bio'] ?? '';
+            _residenceController.text = g['residence_period'] ?? '';
+            _selectedSpecialties = List<String>.from(g['specialties'] ?? []);
+            _selectedLanguageLevels = Map<String, int>.from(
+              g['language_levels'] ?? {},
+            );
+            _selectedLocations = List<String>.from(g['location_names'] ?? []);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) AppToast.error(context, '프로필을 불러오지 못했습니다.');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _pickAssets() async {
-    // 1. 사진 개수 제한 체크 (로컬 + 서버 사진 합쳐서 5장)
-    if (_selectedAssets.length + _serverImageUrls.length >= 5) {
+    final currentTotal = _selectedAssets.length + _serverImageUrls.length;
+    if (currentTotal >= 5) {
       AppToast.error(context, '최대 5장까지 가능합니다.');
       return;
     }
 
-    // 2. 위챗 에셋 피커 실행
     final List<AssetEntity>? result = await AssetPicker.pickAssets(
       context,
       pickerConfig: AssetPickerConfig(
-        maxAssets: 5 - _serverImageUrls.length, // 남은 자리만큼만 선택
+        maxAssets: 5 - _serverImageUrls.length,
         selectedAssets: _selectedAssets,
         requestType: RequestType.image,
       ),
     );
 
-    // 3. 결과가 있으면 상태 업데이트
     if (result != null) {
-      setState(() {
-        _selectedAssets = result;
-      });
+      final localOnly = <AssetEntity>[];
+      for (final asset in result) {
+        final file = await asset.originFile;
+        if (file != null) localOnly.add(asset);
+      }
+      if (localOnly.length < result.length && mounted) {
+        AppToast.error(context, 'iCloud 사진은 지원하지 않습니다. 기기에 저장된 사진만 선택해주세요.');
+      }
+      setState(() => _selectedAssets = localOnly);
     }
   }
 
   Future<void> _save() async {
     setState(() => _isLoading = true);
     try {
-      await _userService.updateProfile(
+      await _profileService.updateProfile(
         nickname: _nicknameController.text,
         bio: _bioController.text,
         age: int.tryParse(_ageController.text),
         gender: _gender,
+        nationality:
+            _nationalityController
+                .text
+                .isNotEmpty // ✅
+            ? _nationalityController.text
+            : null,
         mbti: _mbti,
         languages: _selectedLanguages,
         travelStyle: _selectedTravelStyles,
-        profileImage: _serverImageUrls,
+        serverImageUrls: _serverImageUrls,
+        newSelectedAssets: _selectedAssets,
         guideBio: _guideBioController.text,
-        locationName: _locationController.text,
+        locationNames: _selectedLocations,
         residencePeriod: _residenceController.text,
         specialties: _selectedSpecialties,
-        languageLevels: _selectedLanguageLevels, // ✅ 추가된 레벨 저장
+        languageLevels: _selectedLanguageLevels,
       );
+
       if (!mounted) return;
       widget.isFirstLogin
           ? Navigator.pushReplacement(
@@ -128,9 +158,9 @@ class _ProfileEditPageState extends State<ProfileEditPage>
             )
           : Navigator.pop(context);
     } catch (e) {
-      AppToast.error(context, '저장 실패');
+      if (mounted) AppToast.error(context, '저장 실패: ${e.toString()}');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -163,10 +193,10 @@ class _ProfileEditPageState extends State<ProfileEditPage>
               controller: _tabController,
               children: [
                 ProfileUserTab(
-                  // ✅ 쪼갠 위젯으로 전달
                   nicknameController: _nicknameController,
                   bioController: _bioController,
                   ageController: _ageController,
+                  nationalityController: _nationalityController, // ✅
                   gender: _gender,
                   mbti: _mbti,
                   selectedTravelStyles: _selectedTravelStyles,
@@ -175,10 +205,15 @@ class _ProfileEditPageState extends State<ProfileEditPage>
                   serverImageUrls: _serverImageUrls,
                   onPickAssets: _pickAssets,
                   onChanged: () => setState(() {}),
+                  onGenderChanged: (val) => setState(() => _gender = val),
+                  onMbtiChanged: (val) => setState(() => _mbti = val),
+                  onRemoveServerImage: (url) =>
+                      setState(() => _serverImageUrls.remove(url)),
+                  onRemoveLocalAsset: (asset) =>
+                      setState(() => _selectedAssets.remove(asset)),
                 ),
                 ProfileGuideTab(
-                  // ✅ 쪼갠 위젯으로 전달
-                  locationController: _locationController,
+                  selectedLocations: _selectedLocations,
                   residenceController: _residenceController,
                   guideBioController: _guideBioController,
                   selectedSpecialties: _selectedSpecialties,

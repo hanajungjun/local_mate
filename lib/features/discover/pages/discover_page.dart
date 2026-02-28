@@ -3,7 +3,6 @@ import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:localmate/services/discover_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// 💡 분리한 뷰 파일들을 import 해주세요 (파일명 확인 필수!)
 import 'traveler_discover_view.dart';
 import 'guide_discover_view.dart';
 import 'discover_detail_page.dart';
@@ -12,10 +11,10 @@ class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
 
   @override
-  State<DiscoverPage> createState() => _DiscoverPageState();
+  State<DiscoverPage> createState() => DiscoverPageState();
 }
 
-class _DiscoverPageState extends State<DiscoverPage> {
+class DiscoverPageState extends State<DiscoverPage> {
   final DiscoverService _discoverService = DiscoverService();
   final CardSwiperController _controller = CardSwiperController();
 
@@ -74,6 +73,12 @@ class _DiscoverPageState extends State<DiscoverPage> {
       // 3. 로딩 종료 및 화면 갱신
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // ✅ [추가] 외부(AppShell)에서 이 키를 통해 호출할 수 있도록 공개 함수를 만듭니다.
+  void refreshData() {
+    debugPrint("🔄 DiscoverPage: 외부 요청으로 데이터를 새로고침합니다.");
+    _initializeData(); // 기존에 만들어둔 데이터 로드 함수 실행
   }
 
   /// 🔍 상세 페이지 이동 로직

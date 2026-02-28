@@ -52,7 +52,6 @@ class TravelerDiscoverView extends StatelessWidget {
     );
   }
 
-  // --- 이하 _buildUserCard, _buildActionButtons, _circleBtn 로직은 동일 ---
   Widget _buildUserCard(Map<String, dynamic> user) {
     final List<dynamic> images = user['profile_image'] is List
         ? user['profile_image']

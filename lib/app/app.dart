@@ -6,16 +6,17 @@ import 'package:localmate/features/auth/login_page.dart';
 import 'package:localmate/app/app_shell.dart';
 import 'package:localmate/app/route_observer.dart';
 
-class TravelMemoirApp extends StatefulWidget {
+class LocalMateApp extends StatefulWidget {
   final bool showOnboarding;
 
-  const TravelMemoirApp({super.key, required this.showOnboarding});
+  // ✅ 1. 생성자에서 key를 받을 수 있도록 super.key를 유지합니다.
+  const LocalMateApp({super.key, required this.showOnboarding});
 
   @override
-  State<TravelMemoirApp> createState() => _TravelMemoirAppState();
+  State<LocalMateApp> createState() => _LocalMateAppState();
 }
 
-class _TravelMemoirAppState extends State<TravelMemoirApp> {
+class _LocalMateAppState extends State<LocalMateApp> {
   bool _initialized = false;
 
   @override
@@ -25,7 +26,6 @@ class _TravelMemoirAppState extends State<TravelMemoirApp> {
   }
 
   Future<void> _initApp() async {
-    // 이미 main에서 초기화했으므로 딜레이 후 바로 진입
     await Future.delayed(const Duration(milliseconds: 500));
     if (mounted) setState(() => _initialized = true);
   }
@@ -50,11 +50,15 @@ class _TravelMemoirAppState extends State<TravelMemoirApp> {
           ),
         ),
       ),
-      // 초기화 전이면 로딩화면, 완료되면 로그인 페이지로 이동
+      // ✅ 2. home 부분 수정
+      // 로그인 여부에 따라 바로 AppShell로 보낸다면 여기서도 key를 넘겨야 합니다.
       home: !_initialized
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : const LoginPage(),
-      routes: {'/app_shell': (context) => const AppShell()},
+
+      // ✅ 3. routes 부분 수정 (가장 중요!)
+      // 'appShellKey'를 직접 사용하거나, LocalMateApp이 받은 widget.key를 전달합니다.
+      routes: {'/app_shell': (context) => AppShell(key: appShellKey)},
     );
   }
 }

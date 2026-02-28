@@ -13,45 +13,51 @@ import 'package:localmate/features/mypage/profile/profile_edit_page.dart';
 import 'package:localmate/features/matching/pages/request_create_page.dart';
 import 'package:localmate/features/matching/pages/guide_matching_list_page.dart';
 
+// ✅ 1. 외부에서 AppShell의 상태를 조절할 수 있도록 전역 키를 선언합니다.
+final GlobalKey<AppShellState> appShellKey = GlobalKey<AppShellState>();
+
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  // ✅ 2. 생성자에서 이 키를 고정으로 사용하도록 설정합니다.
+  const AppShell({super.key}); // 부모의 key를 그대로 사용하도록 둡니다.
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  State<AppShell> createState() => AppShellState(); // ✅ 언더바(_) 제거하여 공개
 }
 
-class _AppShellState extends State<AppShell> {
+// ✅ 3. 클래스 이름 앞의 언더바(_)를 제거하여 외부에서 'AppShellState' 타입을 인식하게 합니다.
+class AppShellState extends State<AppShell> {
   int _currentIndex = 0;
-  final _loginService = LoginService(); // ✅ 서비스 인스턴스
+  final _loginService = LoginService();
+  final GlobalKey<DiscoverPageState> _discoverKey =
+      GlobalKey<DiscoverPageState>();
 
   @override
   void initState() {
     super.initState();
-
-    // ✅ 🎯 핵심: 메인 화면이 그려진 직후 신규 유저인지 확인하여 팝업을 띄웁니다.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkNewUserAndShowDialog();
     });
   }
 
-  // ✅ 신규 유저 체크 및 다이얼로그 로직
+  // ✅ 4. 외부에서 호출할 탭 변경 함수를 만듭니다.
+  void goToTab(int index) {
+    setState(() => _currentIndex = index);
+  }
+
   Future<void> _checkNewUserAndShowDialog() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
-    // 1. 서비스에 물어보기: "이 형님, 신규 유저야?"
     final isNew = await _loginService.isNewUser(user.id);
 
     if (isNew && mounted) {
-      // 2. 형님이 만든 멋진 컨펌 다이얼로그 호출
       final bool? shouldEdit = await AppDialogs.showConfirm(
         context: context,
-        title: 'welcome_title', // "환영합니다!"
-        message: 'profile_setup_prompt', // "매칭을 위해 프로필을 완성할까요?"
-        confirmLabel: 'go_setup', // "네, 지금 할게요"
+        title: 'welcome_title',
+        message: 'profile_setup_prompt',
+        confirmLabel: 'go_setup',
       );
 
-      // 3. '네'라고 하면 프로필 수정 화면으로 슝!
       if (shouldEdit == true && mounted) {
         Navigator.push(
           context,
@@ -71,7 +77,11 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final List<Widget> pages = [
       HomePage(
-        onGoToTravel: () => _onTabSelected(1),
+        onGoToTravel: () => _onTabSelected(2),
+        onModeChanged: (isTraveler) {
+          debugPrint("🔔 홈에서 모드 변경 감지: DiscoverPage 새로고침 시작");
+          _discoverKey.currentState?.refreshData();
+        },
         onStartRequest: () {
           Navigator.push(
             context,
@@ -87,9 +97,8 @@ class _AppShellState extends State<AppShell> {
           );
         },
       ),
-
       const MapViewPage(),
-      const DiscoverPage(),
+      DiscoverPage(key: _discoverKey),
       const ChatMainPage(),
       const MyProfilePage(),
     ];

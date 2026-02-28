@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/features/matching/pages/guide_registration_page.dart';
 import 'package:localmate/services/schedule_service.dart';
-import 'package:localmate/services/user_service.dart';
+import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/core/utils/date_utils.dart';
 
 class GuideMode extends StatefulWidget {
@@ -26,7 +26,7 @@ class _GuideModeState extends State<GuideMode> {
   // 초기 데이터 로드 (프로필 상태 + 일정)
   Future<void> _loadInitialData() async {
     _refreshSchedules();
-    final profile = await UserService().getMyProfile();
+    final profile = await ProfileService().getMyProfile();
     if (profile != null) {
       setState(() {
         _guideStatus = profile['guide_status'] ?? 'none';
