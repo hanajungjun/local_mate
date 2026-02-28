@@ -122,4 +122,51 @@ class UserService {
       });
     }
   }
+
+  /// ✈️ 여행 공고 생성 (travel_requests)
+  Future<void> createTravelRequest({
+    required String title,
+    required String locationName,
+    required DateTime travelAt,
+    required String companionType, // ✅ 추가된 파라미터
+    String? content,
+    int headcount = 1,
+    int? budget,
+  }) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) throw Exception("로그인이 필요합니다.");
+
+    // 1. users 테이블에서 내부 PK(id) 가져오기
+    // 공고의 writer_id는 auth.uid가 아니라 users 테이블의 uuid(PK)를 사용해야 합니다.
+    final userData = await _supabase
+        .from('users')
+        .select('id')
+        .eq('auth_uid', user.id)
+        .single();
+
+    final String writerInternalId = userData['id'];
+
+    // 2. 공고 데이터 삽입
+    await _supabase.from('travel_requests').insert({
+      'writer_id': writerInternalId,
+      'title': title,
+      'location_name': locationName,
+      'travel_at': travelAt.toIso8601String(), // 날짜+시간 통합 정보
+      'companion_type': companionType, // ✅ 추가된 데이터
+      'content': content,
+      'headcount': headcount,
+      'budget': budget,
+      'status': 'searching',
+    });
+  }
+
+  Future<void> updateLastMode(String mode) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+
+    await _supabase
+        .from('users')
+        .update({'last_mode': mode})
+        .eq('auth_uid', user.id);
+  }
 }

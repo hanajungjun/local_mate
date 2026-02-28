@@ -4,53 +4,49 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class DiscoverService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  Future<List<Map<String, dynamic>>> fetchMates({int limit = 10}) async {
+  /// 🔍 [모드 공통] 데이터 불러오기
+  Future<List<Map<String, dynamic>>> fetchMates({
+    required bool isTravelerMode,
+    int limit = 10,
+  }) async {
     try {
-      final myId = _supabase.auth.currentUser?.id;
-      if (myId == null) return [];
+      debugPrint('🚀 [시작] fetchMates 호출됨 (여행자모드: $isTravelerMode)');
 
-      final Set<String> excludeIds = {myId};
+      // 1. 테스트를 위해 모든 필터(나 제외, 좋아요 제외)를 잠시 제거해봅니다.
+      // 2. 가이드 모드/여행자 모드 쿼리 실행
+      final query = isTravelerMode
+          ? _supabase.from('users').select('*, guides!inner(*)')
+          : _supabase.from('users').select('*, guides(*)');
 
-      // 내가 이미 좋아요 누른 사람 제외
-      try {
-        final likes = await _supabase
-            .from('likes')
-            .select('to_user_id')
-            .eq('from_user_id', myId);
-        for (var l in likes) {
-          excludeIds.add(l['to_user_id'].toString());
-        }
-      } catch (_) {}
+      // 💡 여기서 .not('id', 'in', excludeIds) 같은 필터를 일체 걸지 않고 가져와봅니다.
+      final data = await query.limit(limit);
 
-      final List<String> excludeList = excludeIds.toList();
-      final excludeStr = '(${excludeList.join(',')})';
+      if (data.isEmpty) {
+        debugPrint('⚠️ [경고] 쿼리 결과가 0개입니다. (테이블 조인 실패 혹은 조건 불일치)');
+        // 추가 확인: users 테이블에 데이터가 정말 있는지 단순 조회
+        final userCheck = await _supabase.from('users').select('id').limit(1);
+        debugPrint('📋 [체크] users 테이블 총 레코드 유무: ${userCheck.isNotEmpty}');
+      } else {
+        debugPrint('✅ [성공] ${data.length}명의 데이터를 찾았습니다!');
+        debugPrint('👤 첫번째 데이터 닉네임: ${data[0]['nickname']}');
+      }
 
-      final data = await _supabase
-          .from('users')
-          .select()
-          .not('id', 'in', excludeStr)
-          .limit(limit);
-
-      debugPrint('🔥 [결과] 불러온 유저 수: ${data.length}');
       return List<Map<String, dynamic>>.from(data);
     } catch (e) {
-      debugPrint('❌ 최종 로드 실패: $e');
+      debugPrint('❌ [에러] fetchMates 실패: $e');
       return [];
     }
   }
 
-  // ✅ 실제 likes 테이블에 저장
+  /// ❤️ 좋아요 저장
   Future<bool> sendLike(String targetUserId) async {
     try {
       final myId = _supabase.auth.currentUser?.id;
       if (myId == null) return false;
-
       await _supabase.from('likes').insert({
         'from_user_id': myId,
         'to_user_id': targetUserId,
       });
-
-      debugPrint('❤️ $targetUserId 님에게 좋아요 저장 완료!');
       return true;
     } catch (e) {
       debugPrint('Like 에러: $e');
@@ -58,73 +54,62 @@ class DiscoverService {
     }
   }
 
+  /// ✅ ChatListPage용 매치 목록 (에러 방지용으로 유지)
   Future<List<Map<String, dynamic>>> fetchMatches() async {
     final user = _supabase.auth.currentUser;
-    if (user == null) {
-      debugPrint('로그인된 유저가 없습니다.');
-      return [];
-    }
-
-    final myId = user.id;
+    if (user == null) return [];
     try {
-      final myLikesData = await _supabase
+      final myLikes = await _supabase
           .from('likes')
           .select('to_user_id')
-          .eq('from_user_id', myId);
-
+          .eq('from_user_id', user.id);
       final List<String> myLikedIds = List<String>.from(
-        myLikesData.map((l) => l['to_user_id'].toString()),
+        myLikes.map((l) => l['to_user_id'].toString()),
       );
-
       if (myLikedIds.isEmpty) return [];
-
-      final mutualLikesData = await _supabase
+      final mutualLikes = await _supabase
           .from('likes')
           .select('from_user_id')
-          .eq('to_user_id', myId)
+          .eq('to_user_id', user.id)
           .inFilter('from_user_id', myLikedIds);
-
       final List<String> mutualIds = List<String>.from(
-        mutualLikesData.map((l) => l['from_user_id'].toString()),
+        mutualLikes.map((l) => l['from_user_id'].toString()),
       );
-
       if (mutualIds.isEmpty) return [];
-
-      final usersData = await _supabase
-          .from('users')
-          .select()
-          .inFilter('id', mutualIds);
-
-      return List<Map<String, dynamic>>.from(usersData);
+      return List<Map<String, dynamic>>.from(
+        await _supabase.from('users').select().inFilter('id', mutualIds),
+      );
     } catch (e) {
-      print('Match 로드 실패: $e');
       return [];
     }
   }
 
-  Future<Map<String, dynamic>?> fetchGuideProfile(String userId) async {
+  /// 📋 [가이드 모드용] 여행 공고 리스트 가져오기
+  Future<List<Map<String, dynamic>>> fetchTravelRequests({
+    int limit = 20,
+  }) async {
     try {
+      final myId = _supabase.auth.currentUser?.id;
+
+      // 1. 로그인 체크 (강력하게)
+      if (myId == null) {
+        debugPrint('⚠️ 로그인이 필요합니다.');
+        return [];
+      }
+
+      // 2. 쿼리 실행
       final data = await _supabase
-          .from('users')
-          .select('*, guides(*)')
-          .eq('id', userId)
-          .maybeSingle();
+          .from('travel_requests')
+          .select('*, users!inner(nickname, profile_image, nationality)')
+          .eq('status', 'searching')
+          .neq('writer_id', myId) // ✅ 이제 myId가 null이 아님이 보장됨
+          .order('travel_at', ascending: true)
+          .limit(limit);
 
-      return data;
+      return List<Map<String, dynamic>>.from(data);
     } catch (e) {
-      debugPrint('가이드 데이터 JOIN 로드 실패: $e');
-      return null;
-    }
-  }
-
-  Future<void> updateGuideStats(String guideId, double newRating) async {
-    try {
-      await _supabase
-          .from('guides')
-          .update({'guide_count': 1, 'rating_avg': newRating})
-          .eq('id', guideId);
-    } catch (e) {
-      debugPrint('가이드 스탯 업데이트 실패: $e');
+      debugPrint('❌ 공고 로드 실패: $e');
+      return [];
     }
   }
 }

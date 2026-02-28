@@ -6,6 +6,16 @@ class AppToast {
     _showSnackBar(context, message, backgroundColor: const Color(0xFF2D2D2D));
   }
 
+  /// ✅ 성공 알림
+  static void success(BuildContext context, String message) {
+    _showSnackBar(
+      context,
+      message,
+      backgroundColor: const Color(0xFF43A047), // 신뢰감을 주는 녹색
+      isError: false,
+    );
+  }
+
   /// ❌ 에러/경고 알림
   static void error(BuildContext context, String message) {
     _showSnackBar(

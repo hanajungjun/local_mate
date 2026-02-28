@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-class GuideDetailPage extends StatelessWidget {
+class DiscoverDetailPage extends StatelessWidget {
   final Map<String, dynamic> user;
   final Function(String direction) onSwipeAction;
 
-  const GuideDetailPage({
+  const DiscoverDetailPage({
     super.key,
     required this.user,
     required this.onSwipeAction,

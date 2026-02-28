@@ -106,7 +106,7 @@ class _AppShellState extends State<AppShell> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: '홈'),
           BottomNavigationBarItem(icon: Icon(Icons.location_on), label: '지도'),
-          BottomNavigationBarItem(icon: Icon(Icons.style), label: '매칭'),
+          BottomNavigationBarItem(icon: Icon(Icons.style), label: '찾기'),
           BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: '채팅'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: '내정보'),
         ],

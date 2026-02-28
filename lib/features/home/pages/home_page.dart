@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
-
+import 'package:localmate/services/user_service.dart';
 import 'travel_mode.dart';
 import 'guide_mode.dart';
 
@@ -23,6 +23,38 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // ✅ 현재 모드 상태 (true: 여행자, false: 가이드)
   bool _isTravelerMode = true;
+  @override
+  void initState() {
+    super.initState();
+    _loadUserMode(); // 시작할 때 마지막 모드 불러오기
+  }
+
+  // DB에서 마지막 모드 설정 가져오기
+  Future<void> _loadUserMode() async {
+    try {
+      final profile = await UserService().getMyProfile();
+      if (profile != null && profile['last_mode'] != null) {
+        setState(() {
+          _isTravelerMode = profile['last_mode'] == 'traveler';
+        });
+      }
+    } catch (e) {
+      debugPrint("모드 로딩 실패: $e");
+    }
+  }
+
+  // 모드 전환 및 DB 저장
+  Future<void> _toggleMode(bool travelerMode) async {
+    if (_isTravelerMode == travelerMode) return;
+
+    setState(() => _isTravelerMode = travelerMode);
+
+    try {
+      await UserService().updateLastMode(travelerMode ? 'traveler' : 'guide');
+    } catch (e) {
+      debugPrint("모드 저장 실패: $e");
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,13 +124,13 @@ class _HomePageState extends State<HomePage> {
               "여행자 모드",
               _isTravelerMode,
               AppColors.travelingBlue,
-              () => setState(() => _isTravelerMode = true),
+              () => _toggleMode(true), // ✅ 수정
             ),
             _buildToggleItem(
               "가이드 모드",
               !_isTravelerMode,
               AppColors.travelingPurple,
-              () => setState(() => _isTravelerMode = false),
+              () => _toggleMode(false), // ✅ 수정
             ),
           ],
         ),
