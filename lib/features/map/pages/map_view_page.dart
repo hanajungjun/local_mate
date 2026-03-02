@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -19,6 +20,15 @@ class _MapViewPageState extends State<MapViewPage> {
   List<Map<String, dynamic>> _adGuides = [];
   List<Map<String, dynamic>> _generalMates = [];
 
+  final Random _random = Random();
+
+  // ✅ 좌표를 동네 수준으로 퍼뜨리는 함수 (±약 500m)
+  LatLng _fuzzyLocation(double lat, double lng) {
+    final latOffset = (_random.nextDouble() - 0.5) * 0.01;
+    final lngOffset = (_random.nextDouble() - 0.5) * 0.01;
+    return LatLng(lat + latOffset, lng + lngOffset);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -38,8 +48,10 @@ class _MapViewPageState extends State<MapViewPage> {
 
     Position position = await Geolocator.getCurrentPosition();
     if (mounted) {
+      // ✅ 내 위치도 퍼뜨려서 저장
+      final fuzzy = _fuzzyLocation(position.latitude, position.longitude);
       setState(() {
-        _currentPosition = LatLng(position.latitude, position.longitude);
+        _currentPosition = fuzzy;
       });
     }
   }
@@ -66,11 +78,31 @@ class _MapViewPageState extends State<MapViewPage> {
               .toList();
 
           _markers.clear();
+
+          // ✅ 내 위치 마커도 퍼뜨려서 표시
+          if (_currentPosition != null) {
+            _markers.add(
+              Marker(
+                markerId: const MarkerId('my_location'),
+                position: _currentPosition!,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueGreen,
+                ),
+                infoWindow: const InfoWindow(title: '나의 위치 (동네)'),
+              ),
+            );
+          }
+
+          // ✅ 다른 가이드 마커도 퍼뜨려서 표시
           for (var guide in fetchedGuides) {
+            final fuzzyPos = _fuzzyLocation(
+              guide['latitude'],
+              guide['longitude'],
+            );
             _markers.add(
               Marker(
                 markerId: MarkerId(guide['id'].toString()),
-                position: LatLng(guide['latitude'], guide['longitude']),
+                position: fuzzyPos,
                 icon: (guide['ad_level'] ?? 0) > 0
                     ? BitmapDescriptor.defaultMarkerWithHue(
                         BitmapDescriptor.hueOrange,
@@ -112,7 +144,6 @@ class _MapViewPageState extends State<MapViewPage> {
                   children: [
                     CircleAvatar(
                       radius: 35,
-                      // ✅ 널 체크 적용
                       backgroundImage: NetworkImage(
                         getProfileImage(user['profile_image']),
                       ),
@@ -154,7 +185,6 @@ class _MapViewPageState extends State<MapViewPage> {
                               ],
                             ],
                           ),
-                          // ✅ location_name 없으면 nationality로 대체
                           Text(
                             "${user['location_name'] ?? user['nationality'] ?? '위치 미설정'} • ${user['age'] ?? '??'}세",
                             style: const TextStyle(color: Colors.grey),
@@ -209,7 +239,6 @@ class _MapViewPageState extends State<MapViewPage> {
                   height: 50,
                   child: ElevatedButton(
                     onPressed: () {
-                      // 💡 여기서 채팅방 개설 로직 연결!
                       Navigator.pop(context);
                     },
                     style: ElevatedButton.styleFrom(
@@ -261,7 +290,8 @@ class _MapViewPageState extends State<MapViewPage> {
                     zoom: 13.0,
                   ),
                   onMapCreated: (controller) => _controller = controller,
-                  myLocationEnabled: true,
+                  // ✅ 기본 내 위치 점 비활성화 (직접 마커로 표시)
+                  myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   markers: _markers,
                 ),
@@ -341,15 +371,11 @@ class _MapViewPageState extends State<MapViewPage> {
     );
   }
 
+  // ✅ 내 위치 버튼 → 퍼뜨린 위치로 이동
   Future<void> _moveToCurrentPosition() async {
-    if (_controller == null) return;
-
-    Position position = await Geolocator.getCurrentPosition();
+    if (_controller == null || _currentPosition == null) return;
     _controller!.animateCamera(
-      CameraUpdate.newLatLngZoom(
-        LatLng(position.latitude, position.longitude),
-        15.0,
-      ),
+      CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
     );
   }
 
@@ -383,7 +409,6 @@ class _MapViewPageState extends State<MapViewPage> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(15),
               image: DecorationImage(
-                // ✅ 널 체크 적용
                 image: NetworkImage(getProfileImage(user['profile_image'])),
                 fit: BoxFit.cover,
                 colorFilter: ColorFilter.mode(
@@ -418,7 +443,6 @@ class _MapViewPageState extends State<MapViewPage> {
         final user = mate['users'];
         return ListTile(
           leading: CircleAvatar(
-            // ✅ 널 체크 적용
             backgroundImage: NetworkImage(
               getProfileImage(user['profile_image']),
             ),
