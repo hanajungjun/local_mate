@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:wechat_assets_picker/wechat_assets_picker.dart';
 import 'package:localmate/core/constants/app_colors.dart';
+import 'package:country_picker/country_picker.dart';
 
 class ProfileUserTab extends StatefulWidget {
   final TextEditingController nicknameController;
@@ -196,86 +197,49 @@ class _ProfileUserTabState extends State<ProfileUserTab> {
 
   // ── 국적 선택 BottomSheet ─────────────────────────
   void _showNationalitySheet() {
-    final controller = TextEditingController();
-    List<String> filtered = List.from(_allCountries);
-
-    showModalBottomSheet(
+    showCountryPicker(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          child: SizedBox(
-            height: MediaQuery.of(ctx).size.height * 0.65,
-            child: Column(
-              children: [
-                _sheetHandle(),
-                const Text(
-                  '국적 선택',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                const SizedBox(height: 12),
-                _sheetSearchField(
-                  controller: controller,
-                  hint: '국가 검색 또는 직접 입력',
-                  onChanged: (val) {
-                    setSheet(() {
-                      filtered = val.isEmpty
-                          ? List.from(_allCountries)
-                          : _allCountries
-                                .where((c) => c.contains(val))
-                                .toList();
-                      if (val.isNotEmpty && !filtered.contains(val.trim())) {
-                        filtered.insert(0, val.trim());
-                      }
-                    });
-                  },
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: filtered.length,
-                    itemBuilder: (_, i) {
-                      final country = filtered[i];
-                      final isSelected =
-                          widget.nationalityController.text == country;
-                      return ListTile(
-                        leading: Icon(
-                          Icons.flag_outlined,
-                          color: isSelected
-                              ? Colors.grey
-                              : AppColors.travelingBlue,
-                        ),
-                        title: Text(country),
-                        trailing: isSelected
-                            ? const Icon(
-                                Icons.check,
-                                color: AppColors.travelingBlue,
-                              )
-                            : null,
-                        onTap: () {
-                          setState(
-                            () => widget.nationalityController.text = country,
-                          );
-                          widget.onChanged();
-                          Navigator.pop(ctx);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
+      showPhoneCode: false, // 전화번호 국가코드는 숨김
+      onSelect: (Country country) {
+        setState(() {
+          // ✅ [정석] DB에는 'KR', 'US' 같은 코드만 저장합니다.
+          widget.nationalityController.text = country.countryCode;
+        });
+        widget.onChanged();
+      },
+      // 디자인 설정
+      countryListTheme: CountryListThemeData(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        inputDecoration: InputDecoration(
+          hintText: '국가 검색 (Search)',
+          prefixIcon: const Icon(Icons.search),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
           ),
         ),
+        searchTextStyle: const TextStyle(fontSize: 15),
       ),
     );
+  }
+
+  // ✅ [표시] 코드를 받아서 '이모지 + 이름'으로 바꿔주는 함수
+  String _getDisplayNationality(String code) {
+    if (code.isEmpty) return '국적을 선택하세요';
+
+    // 만약 기존 데이터가 이미 '🇰🇷 대한민국' 형태라면 그대로 반환
+    if (code.contains(' ')) return code;
+
+    try {
+      final country = CountryService().findByCode(code);
+      if (country != null) {
+        // 지금은 다국어 설정 전이라 기본 이름(English)이 나올 거예요.
+        return "${country.flagEmoji} ${country.name}";
+      }
+    } catch (e) {
+      return code;
+    }
+    return code;
   }
 
   // ── MBTI 팝업 ──────────────────────────────────────
@@ -668,7 +632,7 @@ class _ProfileUserTabState extends State<ProfileUserTab> {
           const Text('국적', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           GestureDetector(
-            onTap: _showNationalitySheet,
+            onTap: _showNationalitySheet, // 위에서 만든 함수 호출
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -679,10 +643,11 @@ class _ProfileUserTabState extends State<ProfileUserTab> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  // ✅ 이 부분을 제가 드린 코드로 바꾸는 겁니다!
                   Text(
-                    widget.nationalityController.text.isNotEmpty
-                        ? widget.nationalityController.text
-                        : '국적을 선택하세요',
+                    _getDisplayNationality(
+                      widget.nationalityController.text,
+                    ), // 👈 함수로 변환해서 표시!
                     style: TextStyle(
                       fontSize: 15,
                       color: widget.nationalityController.text.isNotEmpty

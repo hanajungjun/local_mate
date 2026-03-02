@@ -48,18 +48,34 @@ class LoginService {
 
   Future<void> syncUserToDatabase(User user) async {
     try {
-      // 💡 upsert 시 'onConflict' 옵션을 명시하면 더 안전합니다.
-      await _supabase.from('users').upsert({
-        'id': user.id, // Primary Key
-        'auth_uid': user.id, // 인증 UID
-        'email': user.email,
-        'nickname': user.email?.split('@')[0] ?? 'new_mate',
-        'updated_at': DateTime.now().toIso8601String(),
-      }, onConflict: 'id'); // 👈 'id'가 겹치면 업데이트만 하라고 명시
+      // 1. 먼저 DB에 기존 유저 정보가 있는지 확인합니다.
+      final existingUser = await _supabase
+          .from('users')
+          .select('nickname')
+          .eq('auth_uid', user.id)
+          .maybeSingle();
 
-      debugPrint('✅ 유저 데이터 동기화 성공');
+      // 2. 업데이트할 데이터 맵을 만듭니다.
+      final Map<String, dynamic> updateData = {
+        'id': user.id,
+        'auth_uid': user.id,
+        'email': user.email,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      // 3. ⭐ 핵심: 기존에 닉네임이 없을 때만 이메일 기반 닉네임을 추가합니다.
+      if (existingUser == null || existingUser['nickname'] == null) {
+        updateData['nickname'] = user.email?.split('@')[0] ?? 'new_mate';
+        debugPrint('🆕 신규 유저: 초기 닉네임을 설정합니다.');
+      } else {
+        debugPrint('✅ 기존 유저: 기존 닉네임(${existingUser['nickname']})을 유지합니다.');
+      }
+
+      // 4. 이제 안전하게 upsert를 실행합니다.
+      await _supabase.from('users').upsert(updateData, onConflict: 'id');
+
+      debugPrint('✅ 유저 데이터 동기화 완료');
     } catch (e) {
-      // 💡 여기서 발생하는 에러가 로그인 차단 원인인지 확인 필수!
       debugPrint('❌ 동기화 에러: $e');
     }
   }

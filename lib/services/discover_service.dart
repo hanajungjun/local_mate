@@ -10,30 +10,34 @@ class DiscoverService {
     int limit = 10,
   }) async {
     try {
-      debugPrint('🚀 [시작] fetchMates 호출됨 (여행자모드: $isTravelerMode)');
+      final myId = _supabase.auth.currentUser?.id;
+      if (myId == null) return [];
 
-      // 1. 테스트를 위해 모든 필터(나 제외, 좋아요 제외)를 잠시 제거해봅니다.
-      // 2. 가이드 모드/여행자 모드 쿼리 실행
-      final query = isTravelerMode
-          ? _supabase.from('users').select('*, guides!inner(*)')
-          : _supabase.from('users').select('*, guides(*)');
+      // 1. 제외할 ID 목록 (나 + 이미 스와이프한 사람)
+      final viewedUsers = await _supabase
+          .from('likes')
+          .select('to_user_id')
+          .eq('from_user_id', myId);
 
-      // 💡 여기서 .not('id', 'in', excludeIds) 같은 필터를 일체 걸지 않고 가져와봅니다.
+      List<String> excludeIds = [myId];
+      excludeIds.addAll(
+        List<String>.from(viewedUsers.map((l) => l['to_user_id'].toString())),
+      );
+
+      // 2. 쿼리 실행
+      // 여행자 모드일 때는 반드시 가이드 정보(!inner)가 있고, 승인된(approved) 사람만 가져옴
+      var query = _supabase
+          .from('users')
+          .select('*, guides!inner(*)') // 가이드 테이블에 데이터가 있는 유저만
+          .eq('guide_status', 'approved') // 승인된 가이드만 필터링
+          .not('id', 'in', excludeIds); // 나를 포함한 제외 목록 거르기
+
       final data = await query.limit(limit);
 
-      if (data.isEmpty) {
-        debugPrint('⚠️ [경고] 쿼리 결과가 0개입니다. (테이블 조인 실패 혹은 조건 불일치)');
-        // 추가 확인: users 테이블에 데이터가 정말 있는지 단순 조회
-        final userCheck = await _supabase.from('users').select('id').limit(1);
-        debugPrint('📋 [체크] users 테이블 총 레코드 유무: ${userCheck.isNotEmpty}');
-      } else {
-        debugPrint('✅ [성공] ${data.length}명의 데이터를 찾았습니다!');
-        debugPrint('👤 첫번째 데이터 닉네임: ${data[0]['nickname']}');
-      }
-
+      debugPrint('📊 [결과] 승인된 가이드 수: ${data.length}명');
       return List<Map<String, dynamic>>.from(data);
     } catch (e) {
-      debugPrint('❌ [에러] fetchMates 실패: $e');
+      debugPrint('❌ fetchMates 에러: $e');
       return [];
     }
   }

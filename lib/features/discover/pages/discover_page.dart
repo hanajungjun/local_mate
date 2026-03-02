@@ -37,11 +37,10 @@ class DiscoverPageState extends State<DiscoverPage> {
   Future<void> _initializeData() async {
     if (!mounted) return;
 
-    // 1. 로딩 시작 및 모든 상태 초기화 (매우 중요!)
     setState(() {
       _isLoading = true;
-      _isEnd = false; // ✅ '다 확인함' 상태를 풀어줘야 카드가 다시 보입니다.
-      _currentIndex = 0; // ✅ 인덱스도 처음으로 되돌립니다.
+      _isEnd = false;
+      _currentIndex = 0;
     });
 
     try {
@@ -49,7 +48,7 @@ class DiscoverPageState extends State<DiscoverPage> {
       final user = supabase.auth.currentUser;
 
       if (user != null) {
-        // 유저의 현재 모드(last_mode) 확인
+        // 1. 유저의 현재 모드 확인
         final userData = await supabase
             .from('users')
             .select('last_mode')
@@ -57,20 +56,27 @@ class DiscoverPageState extends State<DiscoverPage> {
             .single();
 
         _isTravelerMode = userData['last_mode'] == 'traveler';
-      }
 
-      // 2. 모드에 맞는 데이터 가져오기
-      if (_isTravelerMode) {
-        _users = await _discoverService.fetchMates(isTravelerMode: true);
-        debugPrint('✅ 여행자 모드: ${_users.length}명의 메이트 로드 완료');
-      } else {
-        _requests = await _discoverService.fetchTravelRequests();
-        debugPrint('✅ 가이드 모드: ${_requests.length}개의 공고 로드 완료');
+        // 2. 모드에 맞는 데이터 가져오기
+        if (_isTravelerMode) {
+          // 🔥 DiscoverService가 이미 나를 제외한 리스트를 보내줍니다.
+          final fetchedUsers = await _discoverService.fetchMates(
+            isTravelerMode: true,
+          );
+
+          setState(() {
+            _users = fetchedUsers; // 필터링 없이 그대로 할당
+          });
+
+          debugPrint('✅ 여행자 모드: ${_users.length}명의 메이트 로드 완료');
+        } else {
+          _requests = await _discoverService.fetchTravelRequests();
+          debugPrint('✅ 가이드 모드: ${_requests.length}개의 공고 로드 완료');
+        }
       }
     } catch (e) {
       debugPrint('❌ 데이터 초기화 실패: $e');
     } finally {
-      // 3. 로딩 종료 및 화면 갱신
       if (mounted) setState(() => _isLoading = false);
     }
   }
