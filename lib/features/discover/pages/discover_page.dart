@@ -48,36 +48,43 @@ class DiscoverPageState extends State<DiscoverPage> {
       final user = supabase.auth.currentUser;
 
       if (user != null) {
-        // 1. 유저의 현재 모드 확인
         final userData = await supabase
             .from('users')
             .select('last_mode')
             .eq('id', user.id)
             .single();
 
+        // 🔥 핵심: 여기서도 await 이후에 체크
+        if (!mounted) return;
+
         _isTravelerMode = userData['last_mode'] == 'traveler';
 
-        // 2. 모드에 맞는 데이터 가져오기
         if (_isTravelerMode) {
-          // 🔥 DiscoverService가 이미 나를 제외한 리스트를 보내줍니다.
           final fetchedUsers = await _discoverService.fetchMates(
             isTravelerMode: true,
           );
-
+          if (!mounted) return; // 다시 체크
           setState(() {
-            _users = fetchedUsers; // 필터링 없이 그대로 할당
+            _users = fetchedUsers;
           });
-
-          debugPrint('✅ 여행자 모드: ${_users.length}명의 메이트 로드 완료');
         } else {
-          _requests = await _discoverService.fetchTravelRequests();
-          debugPrint('✅ 가이드 모드: ${_requests.length}개의 공고 로드 완료');
+          final fetchedRequests = await _discoverService.fetchTravelRequests();
+          if (!mounted) return; // 다시 체크
+          setState(() {
+            _requests = fetchedRequests;
+          });
         }
       }
     } catch (e) {
-      debugPrint('❌ 데이터 초기화 실패: $e');
+      // 🔥 catch 블록 안에서도 setState가 있다면 mounted 체크 필수
+      if (mounted) {
+        debugPrint('❌ 데이터 초기화 실패: $e');
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      // 마지막 로딩 해제 시점에도 체크
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/login_service.dart';
 import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/features/auth/login_page.dart';
+import 'package:localmate/features/setting/pages/settings_page.dart';
 import 'package:localmate/features/mypage/profile/profile_edit_page.dart';
 
 class MyProfilePage extends StatefulWidget {
@@ -27,8 +28,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
   }
 
   Future<void> _loadMyProfile() async {
+    // 1. 시작 시점 체크 (선택사항이나 권장)
+    if (!mounted) return;
     setState(() => _isLoading = true);
-    final data = await _profileService.getMyProfile(); //
+
+    final data = await _profileService.getMyProfile();
+
+    // 🔥 핵심: 비동기(await) 작업이 끝난 후, 위젯이 아직 화면에 있는지 확인!
+    if (!mounted) return;
+
     setState(() {
       _profileData = data;
       _isLoading = false;
@@ -50,7 +58,13 @@ class _MyProfilePageState extends State<MyProfilePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined, color: Colors.black),
-            onPressed: () {},
+            onPressed: () {
+              // ✅ 2. 버튼 클릭 시 SettingsPage로 이동!
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage()),
+              );
+            },
           ),
         ],
       ),

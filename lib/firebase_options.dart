@@ -31,52 +31,47 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBDRmwSnUBLZjHncU0uNCOlgmnPEdY0fcQ',
-    appId: '1:277385353976:web:8f681c91f5188b2e27790d',
-    messagingSenderId: '277385353976',
-    projectId: 'travelmemoir-ee340',
-    authDomain: 'travelmemoir-ee340.firebaseapp.com',
-    storageBucket: 'travelmemoir-ee340.firebasestorage.app',
-    measurementId: 'G-ZS5FHGR991',
+    apiKey: 'AIzaSyDifbnJzTfvMNyzPcS9iQq7yeu7AhpDWIw',
+    appId: '1:427895096068:web:299a40704209e488fe4651',
+    messagingSenderId: '427895096068',
+    projectId: 'localmate-88aad',
+    authDomain: 'localmate-88aad.firebaseapp.com',
+    storageBucket: 'localmate-88aad.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBa8JYa3_X8oWuv4fYWTRqowOhxCsn6dV4',
-    appId: '1:277385353976:android:3ed1d136ef41c04b27790d',
-    messagingSenderId: '277385353976',
-    projectId: 'travelmemoir-ee340',
-    storageBucket: 'travelmemoir-ee340.firebasestorage.app',
+    apiKey: 'AIzaSyDk2wDciIsJkODeYtjsHlZ1hf8bc34yWNE',
+    appId: '1:427895096068:android:5451c93388b40fb9fe4651',
+    messagingSenderId: '427895096068',
+    projectId: 'localmate-88aad',
+    storageBucket: 'localmate-88aad.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyDBN9chS0ExqIz3rNqv6jVfL7lFq3yRlUc',
-    appId: '1:277385353976:ios:b32207bc2631ead727790d',
-    messagingSenderId: '277385353976',
-    projectId: 'travelmemoir-ee340',
-    storageBucket: 'travelmemoir-ee340.firebasestorage.app',
-    iosClientId:
-        '277385353976-5807hspd33fcvloonsr814ra0559bsbe.apps.googleusercontent.com',
-    iosBundleId: 'com.hanajungjun.travelmemoir',
+    apiKey: 'AIzaSyBbilUO8xML3IXYvpdZ6aDQBpen67-7368',
+    appId: '1:427895096068:ios:4780be6615faa3fefe4651',
+    messagingSenderId: '427895096068',
+    projectId: 'localmate-88aad',
+    storageBucket: 'localmate-88aad.firebasestorage.app',
+    iosBundleId: 'com.hanajungjun.localmate',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyDBN9chS0ExqIz3rNqv6jVfL7lFq3yRlUc',
-    appId: '1:277385353976:ios:0a7436a7ab07f17327790d',
-    messagingSenderId: '277385353976',
-    projectId: 'travelmemoir-ee340',
-    storageBucket: 'travelmemoir-ee340.firebasestorage.app',
-    iosClientId:
-        '277385353976-c9gu0lgn131lebo6o4dk6g3bhrejb5dj.apps.googleusercontent.com',
-    iosBundleId: 'com.example.myApp',
+    apiKey: 'AIzaSyBbilUO8xML3IXYvpdZ6aDQBpen67-7368',
+    appId: '1:427895096068:ios:52bd9f7e6543d3fafe4651',
+    messagingSenderId: '427895096068',
+    projectId: 'localmate-88aad',
+    storageBucket: 'localmate-88aad.firebasestorage.app',
+    iosBundleId: 'com.example.localMate',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyBDRmwSnUBLZjHncU0uNCOlgmnPEdY0fcQ',
-    appId: '1:277385353976:web:b0f9839e21ea936c27790d',
-    messagingSenderId: '277385353976',
-    projectId: 'travelmemoir-ee340',
-    authDomain: 'travelmemoir-ee340.firebaseapp.com',
-    storageBucket: 'travelmemoir-ee340.firebasestorage.app',
-    measurementId: 'G-2Z8TZR5R8Q',
+    apiKey: 'AIzaSyDifbnJzTfvMNyzPcS9iQq7yeu7AhpDWIw',
+    appId: '1:427895096068:web:4eafaae6ea4bd398fe4651',
+    messagingSenderId: '427895096068',
+    projectId: 'localmate-88aad',
+    authDomain: 'localmate-88aad.firebaseapp.com',
+    storageBucket: 'localmate-88aad.firebasestorage.app',
   );
+
 }

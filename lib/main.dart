@@ -3,155 +3,141 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart'; // 에러 방지 주석
+import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// import 'package:google_mobile_ads/google_mobile_ads.dart'; // 에러 방지 주석
-// import 'package:firebase_core/firebase_core.dart'; // 에러 방지 주석
-// import 'package:firebase_messaging/firebase_messaging.dart'; // 에러 방지 주석
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:easy_localization/easy_localization.dart';
-// import 'package:purchases_flutter/purchases_flutter.dart'; // 에러 방지 주석
+import 'package:easy_localization/easy_localization.dart'; // ✅ 다시 부활!
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:permission_handler/permission_handler.dart';
-// import 'package:localmate/app/route_observer.dart'; // 에러 방지 주석
-// import 'services/network_service.dart'; // 에러 방지 주석
-// import 'firebase_options.dart'; // 에러 방지 주석
-// import 'services/prompt_cache.dart'; // 에러 방지 주석
-import 'package:localmate/app/app_shell.dart';
+
+import 'firebase_options.dart';
 import 'env.dart';
 import 'app/app.dart';
-// import 'package:localmate/services/country_service.dart'; // 에러 방지 주석
+import 'app/app_shell.dart';
 
-/**
- * 🚀 Local Mate 앱 진입점
- * 외부 서비스 연동 전 UI 확인을 위해 에러 유발 요소 주석 처리 완료
- */
-
-// @pragma('vm:entry-point')
-// Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-//   // Firebase 미설정 시 에러 방지 주석
-// }
-// 🔔 알림 권한 시스템 팝업 요청 함수
-Future<void> _initNotificationPermission() async {
-  // 알림 권한 상태 체크
-  var status = await Permission.notification.status;
-
-  if (status.isDenied) {
-    // 💡 거절된 상태라면 유저에게 팝업을 띄워 요청합니다.
-    await Permission.notification.request();
-  }
-
-  if (await Permission.notification.isGranted) {
-    debugPrint('🔔 알림 권한 승인됨');
-  } else {
-    debugPrint('🔕 알림 권한 거절됨');
-  }
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
-Future<void> _initMediaStorePermission() async {
-  if (Platform.isAndroid) {
-    List<Permission> permissions = [
-      Permission.photos,
-      Permission.videos,
-      Permission.storage,
-    ];
-    Map<Permission, PermissionStatus> statuses = await permissions.request();
-    bool isGranted =
-        statuses[Permission.photos]?.isGranted == true ||
-        statuses[Permission.storage]?.isGranted == true;
-    if (isGranted) {
-      debugPrint('📸 갤러리 접근 권한 확보 성공');
-    } else {
-      debugPrint('❌ 권한 거절됨');
+// 🔔 FCM 및 권한 관리 (동일)
+Future<void> _initFCM() async {
+  FirebaseMessaging messaging = FirebaseMessaging.instance;
+  if (Platform.isIOS) {
+    String? apnsToken = await messaging.getAPNSToken();
+    int retry = 0;
+    while (apnsToken == null && retry < 10) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      apnsToken = await messaging.getAPNSToken();
+      retry++;
+    }
+  }
+
+  NotificationSettings settings = await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+
+  if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+    // ✅ 이 한 줄이 핵심입니다!
+    // 'all_users'라는 토픽을 구독합니다.
+    await messaging.subscribeToTopic('all_users');
+    debugPrint('📢 all_users 토픽 구독 완료');
+    await messaging.subscribeToTopic('marketing');
+
+    String? token = await messaging.getToken();
+    debugPrint("🔥 FCM 토큰: $token");
+
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null && token != null) {
+      await Supabase.instance.client
+          .from('users')
+          .update({'fcm_token': token})
+          .eq('id', user.id);
     }
   }
 }
 
 Future<void> main() async {
+  // ✅ 1. Flutter 엔진 초기화 및 Splash 유지
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
+  // ✅ 2. 다국어 초기화가 완료될 때까지 확실히 기다림
   await EasyLocalization.ensureInitialized();
-  EasyLocalization.logger.enableLevels = [];
 
-  final prefs = await SharedPreferences.getInstance();
-  final bool onboardingDone = prefs.getBool('onboarding_done') ?? false;
+  // ✅ 3. 나머지 서비스 초기화
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // --- 외부 서비스 초기화 (UI 확인을 위해 일시 주석) ---
-  // await MobileAds.instance.initialize();
-  // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // CountryService.prefetch();
-  // ----------------------------------------------
-
-  // Supabase 초기화 (AppEnv 설정 필요)
-  try {
-    await Supabase.initialize(
-      url: AppEnv.supabaseUrl,
-      anonKey: AppEnv.supabaseAnonKey,
-    );
-  } catch (e) {
-    debugPrint("⚠️ Supabase 초기화 실패 (URL/Key 확인 필요): $e");
-  }
+  await Supabase.initialize(
+    url: AppEnv.supabaseUrl,
+    anonKey: AppEnv.supabaseAnonKey,
+  );
 
   await initializeDateFormatting('ko_KR', null);
-
   KakaoSdk.init(
     nativeAppKey: AppEnv.kakaoNativeAppKey,
     javaScriptAppKey: AppEnv.kakaoJavaScriptKey,
   );
 
+  final prefs = await SharedPreferences.getInstance();
+  final bool onboardingDone = prefs.getBool('onboarding_done') ?? false;
+
   runApp(
+    // ✅ 4. EasyLocalization으로 감싸기 (경로 및 언어 설정 확인 필수)
     EasyLocalization(
       supportedLocales: const [Locale('ko'), Locale('en')],
       path: 'assets/translations',
       fallbackLocale: const Locale('ko'),
       useOnlyLangCode: true,
-      child: _LocalMateAppWrapper(
-        showOnboarding: !onboardingDone,
-        adminLoadingImageUrl: null,
-      ),
+      child: _LocalMateAppWrapper(showOnboarding: !onboardingDone),
     ),
   );
 }
 
 class _LocalMateAppWrapper extends StatefulWidget {
   final bool showOnboarding;
-  final String? adminLoadingImageUrl;
-
-  const _LocalMateAppWrapper({
-    required this.showOnboarding,
-    this.adminLoadingImageUrl,
-  });
+  const _LocalMateAppWrapper({required this.showOnboarding});
 
   @override
   State<_LocalMateAppWrapper> createState() => _LocalMateAppWrapperState();
 }
 
 class _LocalMateAppWrapperState extends State<_LocalMateAppWrapper> {
-  bool _isLoadingComplete = false;
+  bool _isReady = false;
 
   @override
   void initState() {
     super.initState();
-    _initNotificationPermission(); // 알림 권한
-    _initMediaStorePermission(); // 갤러리 권한 (사진/영상)
-    Permission.location.request();
+    // ✅ 5. 앱 구동 준비 (FCM 실행 포함)
+    _prepareApp();
+  }
 
-    // 로딩 화면을 1초간 보여준 후 메인으로 진입
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() => _isLoadingComplete = true);
-      }
-    });
+  Future<void> _prepareApp() async {
+    await _initFCM(); // 푸시 권한 및 토큰 로직
+
+    // 앱이 화면을 그릴 준비가 되었음을 알림
+    if (mounted) {
+      setState(() => _isReady = true);
+      // ✅ 6. 준비 완료 후 Splash 제거
+      FlutterNativeSplash.remove();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_isLoadingComplete) {
-      return _DynamicLoadingScreen(imageUrl: widget.adminLoadingImageUrl);
+    // ✅ 준비 전에는 아무것도 안 그리거나 아주 단순한 로딩만 (에러 방지)
+    if (!_isReady) {
+      return const MaterialApp(
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
     }
 
-    // ✅ 기존 ValueKey를 지우고 우리가 만든 appShellKey를 꽂아줍니다.
+    // ✅ 여기서 LocalMateApp이 실행되어야 tr() 등 다국어 함수가 context를 찾아갑니다.
     return LocalMateApp(
       key: appShellKey,
       showOnboarding: widget.showOnboarding,
