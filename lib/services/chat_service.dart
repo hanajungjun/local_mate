@@ -164,4 +164,57 @@ class ChatService {
     // 3. 기존 스마트 푸시 로직 동일하게 수행 (body를 "사진을 보냈습니다"로)
     // ... (기존 sendMessage의 푸시 로직 호출)
   }
+
+  // 채팅방 완전히 떠나기
+  Future<void> deleteChatRoom(String roomId) async {
+    final myId = _supabase.auth.currentUser!.id;
+
+    try {
+      // 1. 메시지 삭제 (선택: 내 메시지만 or 전체)
+      // 여기선 채팅방 자체를 나가는 방식으로 처리
+
+      // 2. chat_rooms에서 삭제 (또는 left_users 배열에 추가하는 소프트 삭제)
+      await _supabase.from('chat_rooms').delete().eq('id', roomId);
+    } catch (e) {
+      debugPrint('채팅방 나가기 에러: $e');
+      rethrow;
+    }
+  }
+
+  /// 채팅방 나가기 (소프트 삭제)
+  /// - 나는 목록에서 사라짐
+  /// - 상대방은 목록에 보이지만 메시지 전송 차단됨
+  Future<void> leaveChatRoom(String roomId) async {
+    final myId = _supabase.auth.currentUser!.id;
+
+    try {
+      // left_users 배열에 내 ID 추가 (PostgreSQL array_append)
+      await _supabase.rpc(
+        'leave_chat_room',
+        params: {'room_id': roomId, 'user_id': myId},
+      );
+      debugPrint("✅ 채팅방 나가기 완료");
+    } catch (e) {
+      debugPrint('채팅방 나가기 에러: $e');
+      rethrow;
+    }
+  }
+
+  /// 상대방이 나갔는지 확인
+  Future<bool> isPartnerLeft(String roomId) async {
+    final myId = _supabase.auth.currentUser!.id;
+
+    final room = await _supabase
+        .from('chat_rooms')
+        .select('left_users, participant_a, participant_b')
+        .eq('id', roomId)
+        .single();
+
+    final String partnerId = room['participant_a'] == myId
+        ? room['participant_b']
+        : room['participant_a'];
+
+    final List leftUsers = room['left_users'] ?? [];
+    return leftUsers.contains(partnerId);
+  }
 }

@@ -4,8 +4,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class MatchingService {
   final _supabase = Supabase.instance.client;
 
-  /// 🤝 가이드 제안 최종 수락 (종합 선물 세트)
-  Future<bool> acceptGuideOffer({
+  /// 🤝 가이드 제안 최종 수락
+  Future<String?> acceptGuideOffer({
+    // ✅ 리턴 타입을 String? (방 ID)로 변경
     required String offerId,
     required String requestId,
     required String guideId,
@@ -13,44 +14,72 @@ class MatchingService {
   }) async {
     try {
       final myId = _supabase.auth.currentUser?.id;
-      if (myId == null) return false;
+      if (myId == null) return null;
 
-      // 1. 해당 제안 수락 상태로 변경
+      // 1~4번 로직 (offers 업데이트, 일정 생성 등)은 그대로 유지...
       await _supabase
           .from('offers')
           .update({'status': 'accepted'})
           .eq('id', offerId);
-
-      // 2. 해당 공고의 다른 모든 제안들을 자동으로 'rejected' 변경
       await _supabase
           .from('offers')
           .update({'status': 'rejected'})
           .eq('request_id', requestId)
-          .neq('id', offerId); // 지금 수락한 거 제외하고 전부
-
-      // 3. 공고 상태를 'completed'로 변경
+          .neq('id', offerId);
       await _supabase
           .from('travel_requests')
           .update({'status': 'completed'})
           .eq('id', requestId);
-
-      // 4. 여행 일정 생성 (가이드 유저 ID를 직접 저장)
       await _supabase.from('user_schedules').insert({
         'user_id': myId,
-        'guide_id': guideId, // SQL 수정 후 컬럼명
+        'guide_id': guideId,
         'title': title,
         'trip_date': DateTime.now().toIso8601String(),
         'status': 'confirmed',
       });
 
-      // 5. 채팅방(Rooms) 생성 또는 기존 방 가져오기
-      // 가이드와 여행자 사이의 고유한 채팅방을 만듭니다.
-      await _createChatRoom(myId, guideId, title);
+      // 5. 채팅방 생성 로직 호출 및 방 ID 받기
+      final roomId = await _getOrCreateChatRoom(myId, guideId);
 
-      return true;
+      return roomId; // ✅ 생성되거나 조회된 방 ID를 반환
     } catch (e) {
       debugPrint('❌ 매칭 수락 중 오류 발생: $e');
-      return false;
+      return null;
+    }
+  }
+
+  /// 💬 채팅방 생성 또는 기존 방 ID 가져오기 로직
+  Future<String?> _getOrCreateChatRoom(String userId, String guideId) async {
+    try {
+      final participants = [userId, guideId]..sort();
+      final pA = participants[0];
+      final pB = participants[1];
+
+      // 🔍 1. 먼저 이미 존재하는 방이 있는지 조회
+      final existingRoom = await _supabase
+          .from('chat_rooms')
+          .select('id')
+          .eq('participant_a', pA)
+          .eq('participant_b', pB)
+          .maybeSingle();
+
+      if (existingRoom != null) {
+        debugPrint('♻️ 기존 채팅방 발견: ${existingRoom['id']}');
+        return existingRoom['id'].toString();
+      }
+
+      // ✨ 2. 방이 없으면 새로 생성
+      final newRoom = await _supabase
+          .from('chat_rooms')
+          .insert({'participant_a': pA, 'participant_b': pB})
+          .select()
+          .single();
+
+      debugPrint('✅ 새 채팅방 생성 완료: ${newRoom['id']}');
+      return newRoom['id'].toString();
+    } catch (e) {
+      debugPrint('❌ 채팅방 처리 실패: $e');
+      return null;
     }
   }
 

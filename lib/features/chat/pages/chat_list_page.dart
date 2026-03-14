@@ -62,7 +62,6 @@ class _ChatListPageState extends State<ChatListPage> {
     }
   }
 
-  // ✅ 채팅방 이동 함수 (닉네임 데이터 포함)
   Future<void> _navigateToChat(
     String targetId,
     Map<String, dynamic> targetUser,
@@ -79,14 +78,12 @@ class _ChatListPageState extends State<ChatListPage> {
       final roomId = await _chatService.getOrCreateRoom(myId, targetId);
 
       if (mounted) {
-        Navigator.pop(context); // 로딩 닫기
+        Navigator.pop(context);
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ChatRoomPage(
-              roomId: roomId,
-              targetUser: targetUser, // ✅ 여기서 넘겨준 닉네임이 채팅방 상단에 뜸!
-            ),
+            builder: (context) =>
+                ChatRoomPage(roomId: roomId, targetUser: targetUser),
           ),
         );
         _loadInitialData();
@@ -94,6 +91,20 @@ class _ChatListPageState extends State<ChatListPage> {
     } catch (e) {
       if (mounted) Navigator.pop(context);
       debugPrint("❌ 채팅방 이동 실패: $e");
+    }
+  }
+
+  // ✅ 채팅방 나가기
+  Future<void> _leaveChatRoom(String roomId) async {
+    try {
+      await _chatService.leaveChatRoom(roomId);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("채팅방을 나갔습니다.")));
+      }
+    } catch (e) {
+      debugPrint("❌ 채팅방 나가기 실패: $e");
     }
   }
 
@@ -206,7 +217,6 @@ class _ChatListPageState extends State<ChatListPage> {
                 final userData = userSnapshot.data;
                 final String nickname = userData?['nickname'] ?? "메이트";
 
-                // ✅ 에러 방지용: null 체크와 isEmpty 체크를 확실하게 bool로 변환
                 final bool hasProfile =
                     userData != null &&
                     userData['profile_image'] != null &&
@@ -216,34 +226,84 @@ class _ChatListPageState extends State<ChatListPage> {
                     ? userData!['profile_image'][0]
                     : null;
 
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
+                // ✅ Dismissible로 감싸서 스와이프 삭제
+                return Dismissible(
+                  key: Key(room['id']),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 24),
+                    color: Colors.red,
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.exit_to_app, color: Colors.white),
+                        SizedBox(height: 4),
+                        Text(
+                          "나가기",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  leading: CircleAvatar(
-                    backgroundImage: profileImg != null
-                        ? NetworkImage(profileImg)
-                        : null,
-                    backgroundColor: Colors.blueAccent,
-                    child: profileImg == null
-                        ? const Icon(Icons.person, color: Colors.white)
-                        : null,
+                  confirmDismiss: (_) async {
+                    return await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text("채팅방 나가기"),
+                        content: const Text(
+                          "나가면 이 대화가 목록에서 사라집니다.\n상대방은 더 이상 메시지를 보낼 수 없게 됩니다.",
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text("취소"),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red,
+                            ),
+                            child: const Text("나가기"),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  onDismissed: (_) => _leaveChatRoom(room['id']),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    leading: CircleAvatar(
+                      backgroundImage: profileImg != null
+                          ? NetworkImage(profileImg)
+                          : null,
+                      backgroundColor: Colors.blueAccent,
+                      child: profileImg == null
+                          ? const Icon(Icons.person, color: Colors.white)
+                          : null,
+                    ),
+                    title: Text(
+                      nickname,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      room['last_message'] ?? "대화를 시작해보세요!",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _navigateToChat(targetId, {
+                      'id': targetId,
+                      'nickname': nickname,
+                      'profile_image': userData?['profile_image'],
+                    }),
                   ),
-                  title: Text(
-                    nickname,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    room['last_message'] ?? "대화를 시작해보세요!",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => _navigateToChat(targetId, {
-                    'id': targetId,
-                    'nickname': nickname,
-                    'profile_image': userData?['profile_image'],
-                  }),
                 );
               },
             );

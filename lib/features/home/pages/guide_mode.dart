@@ -4,6 +4,7 @@ import 'package:localmate/features/matching/pages/guide_registration_page.dart';
 import 'package:localmate/services/schedule_service.dart';
 import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/core/utils/date_utils.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // ✅ 추가
 
 class GuideMode extends StatefulWidget {
   final VoidCallback? onStartGuide;
@@ -14,35 +15,35 @@ class GuideMode extends StatefulWidget {
 }
 
 class _GuideModeState extends State<GuideMode> {
+  // ✅ 1. 일정도 실시간으로 보고 싶다면 Stream으로 관리 (선택사항)
   late Future<List<Map<String, dynamic>>> _schedulesFuture;
-  String _guideStatus = 'none'; // none, pending, approved, rejected
+
+  // ✅ 2. 프로필 상태 실시간 감시용 Stream
+  late Stream<Map<String, dynamic>?> _profileStream;
 
   @override
   void initState() {
     super.initState();
-    _loadInitialData();
+    _initStreams();
   }
 
-  // 초기 데이터 로드 (프로필 상태 + 일정)
-  Future<void> _loadInitialData() async {
-    _refreshSchedules();
-    final profile = await ProfileService().getMyProfile();
-    if (profile != null) {
-      setState(() {
-        _guideStatus = profile['guide_status'] ?? 'none';
-      });
-    }
-  }
+  void _initStreams() {
+    final myId = Supabase.instance.client.auth.currentUser?.id;
 
-  // 새로고침 로직
-  Future<void> _refresh() async {
-    await _loadInitialData();
-  }
-
-  void _refreshSchedules() {
     setState(() {
       _schedulesFuture = ScheduleService().getGuideSchedules();
+
+      // 🚀 프로필 테이블의 guide_status를 실시간으로 지켜봅니다.
+      _profileStream = Supabase.instance.client
+          .from('users')
+          .stream(primaryKey: ['id'])
+          .eq('id', myId ?? '')
+          .map((data) => data.isNotEmpty ? data.first : null);
     });
+  }
+
+  Future<void> _refresh() async {
+    _initStreams();
   }
 
   @override
@@ -59,7 +60,14 @@ class _GuideModeState extends State<GuideMode> {
               padding: const EdgeInsets.symmetric(horizontal: 27),
               child: Column(
                 children: [
-                  _buildGuideStatusBanner(context), // 동적 배너로 교체
+                  // ✅ 3. StreamBuilder로 배너를 감쌉니다.
+                  StreamBuilder<Map<String, dynamic>?>(
+                    stream: _profileStream,
+                    builder: (context, snapshot) {
+                      final status = snapshot.data?['guide_status'] ?? 'none';
+                      return _buildGuideStatusBanner(context, status);
+                    },
+                  ),
                   const SizedBox(height: 12),
                   _buildActionCard(
                     title: "동네 가이드 활동",
@@ -98,22 +106,22 @@ class _GuideModeState extends State<GuideMode> {
     );
   }
 
-  // ✅ 가이드 상태에 따라 변하는 동적 배너
-  Widget _buildGuideStatusBanner(BuildContext context) {
+  // ✅ 4. 파라미터로 status를 받도록 수정된 배너
+  Widget _buildGuideStatusBanner(BuildContext context, String status) {
     String message = "활동을 위해 가이드 프로필을 등록하세요!";
     String buttonText = "등록";
     bool showButton = true;
     IconData icon = Icons.info_outline;
 
-    if (_guideStatus == 'pending') {
+    if (status == 'pending') {
       message = "가이드 승인 대기 중입니다. ✨";
       showButton = false;
       icon = Icons.hourglass_top_rounded;
-    } else if (_guideStatus == 'approved') {
+    } else if (status == 'approved') {
       message = "축하합니다! 공식 가이드로 활동 중입니다. 🏆";
       showButton = false;
       icon = Icons.verified_user_rounded;
-    } else if (_guideStatus == 'rejected') {
+    } else if (status == 'rejected') {
       message = "가이드 승인이 거절되었습니다. 서류를 확인해주세요.";
       buttonText = "재등록";
       showButton = true;
@@ -143,18 +151,15 @@ class _GuideModeState extends State<GuideMode> {
           ),
           if (showButton)
             TextButton(
-              // ✅ 기존 배너 함수 내 Navigator 부분 수정
               onPressed: () async {
-                // 1. 가이드 등록 페이지로 이동하고, 돌아올 때까지 기다립니다.
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => const GuideRegistrationPage(),
                   ),
                 );
-
-                // 2. 돌아오자마자 데이터를 새로고침합니다! (이게 핵심)
-                _loadInitialData();
+                // 돌아오면 스트림 재설정 (사실 스트림이라 안 해도 되지만 확실히 하기 위해)
+                _initStreams();
               },
               style: TextButton.styleFrom(
                 backgroundColor: Colors.white,

@@ -23,11 +23,14 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   final supabase = Supabase.instance.client;
   late final Stream<List<Map<String, dynamic>>> _messageStream;
 
+  bool _isPartnerLeft = false; // ✅ 상대방 나갔는지 여부
+
   @override
   void initState() {
     super.initState();
     _messageStream = _chatService.getMessageStream(widget.roomId);
     _updatePresence(true);
+    _checkPartnerStatus(); // ✅ 진입 시 상태 확인
   }
 
   @override
@@ -36,6 +39,16 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     _handleTyping("");
     _controller.dispose();
     super.dispose();
+  }
+
+  // ✅ 상대방이 나갔는지 확인
+  Future<void> _checkPartnerStatus() async {
+    try {
+      final left = await _chatService.isPartnerLeft(widget.roomId);
+      if (mounted) setState(() => _isPartnerLeft = left);
+    } catch (e) {
+      debugPrint("❌ 상대방 상태 확인 실패: $e");
+    }
   }
 
   Future<void> _updatePresence(bool isActive) async {
@@ -71,6 +84,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   void _onSend() async {
+    if (_isPartnerLeft) return; // ✅ 상대방 나간 경우 전송 차단
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
@@ -125,26 +139,23 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                     final msg = messages[index];
                     final bool isMe =
                         msg['sender_id'] == supabase.auth.currentUser!.id;
-
-                    // ✅ 여기서 함수 호출만 합니다!
                     return _buildMessageBubble(
                       isMe: isMe,
                       text: msg['content'] ?? '',
-                      type: msg['message_type'], // DB 컬럼명 확인 필수
-                      imageUrl: msg['image_url'], // DB 컬럼명 확인 필수
+                      type: msg['message_type'],
+                      imageUrl: msg['image_url'],
                     );
                   },
                 );
               },
             ),
           ),
-          _buildInputArea(),
+          _buildInputArea(), // ✅ 상대방 나간 경우 내부에서 분기
         ],
       ),
     );
   }
 
-  // ✅ 통합된 메시지 버블 (텍스트/이미지 모두 대응)
   Widget _buildMessageBubble({
     required bool isMe,
     required String text,
@@ -156,7 +167,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       child: Container(
         margin: const EdgeInsets.only(bottom: 15),
         padding: type == 'image'
-            ? const EdgeInsets.all(4) // 이미지는 패딩 최소화
+            ? const EdgeInsets.all(4)
             : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: const BoxConstraints(maxWidth: 250),
         decoration: BoxDecoration(
@@ -264,7 +275,32 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
+  // ✅ 상대방 나간 경우 입력창 대신 안내 배너 표시
   Widget _buildInputArea() {
+    if (_isPartnerLeft) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          border: const Border(top: BorderSide(color: Color(0xFFEEEEEE))),
+        ),
+        child: SafeArea(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.block, color: Colors.grey.shade400, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                "상대방이 채팅방을 나갔습니다.",
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 기존 입력창
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: const BoxDecoration(

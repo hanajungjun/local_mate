@@ -12,6 +12,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:localmate/features/chat/pages/chat_room_page.dart';
+import 'package:localmate/features/matching/pages/received_offers_page.dart';
 import 'firebase_options.dart';
 import 'env.dart';
 import 'app/app.dart';
@@ -157,6 +158,22 @@ class _LocalMateAppWrapperState extends State<_LocalMateAppWrapper> {
     } else if (type == 'chat' && roomId != null) {
       // 💬 [핵심 추가] 메시지 알림 클릭 시 해당 채팅방으로 직접 이동
       _navigateToSpecificChat(roomId);
+    } else if (type == 'offer') {
+      appShellKey.currentState?.goToTab(0);
+
+      final context = appShellKey.currentContext;
+      if (context != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ReceivedOffersPage(
+              requestId: message.data['requestId'] ?? '', // 🆔 공고 ID
+              requestTitle:
+                  message.data['requestTitle'] ?? '공고 상세', // 🏷️ 공고 제목
+            ),
+          ),
+        );
+      }
     }
   }
 

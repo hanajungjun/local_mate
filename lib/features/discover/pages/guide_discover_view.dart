@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
-import 'package:localmate/services/discover_service.dart'; // 서비스 호출용
+import 'package:localmate/services/discover_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class GuideDiscoverView extends StatelessWidget {
   final List<Map<String, dynamic>> requests;
@@ -30,16 +31,22 @@ class GuideDiscoverView extends StatelessWidget {
   }
 
   Widget _buildRequestCard(BuildContext context, Map<String, dynamic> req) {
-    final writer = req['users'];
+    final writer = req['users'] as Map<String, dynamic>?;
 
-    // 1. 현재 제안 개수 파악 (Supabase 쿼리 결과에 따라 구조가 다를 수 있으니 안전하게 처리)
-    final int offerCount =
-        (req['offers'] != null && (req['offers'] as List).isNotEmpty)
-        ? req['offers'][0]['count']
-        : 0;
+    // ✅ [수정] 서비스에서 가져온 offers 리스트에서 rejected가 아닌 것만 카운트!
+    final List<dynamic> offersData = req['offers'] as List<dynamic>? ?? [];
+    final int offerCount = offersData
+        .where((o) => o['status'] != 'rejected')
+        .length;
 
-    // 2. 5건 이상이면 마감 상태로 판정
     final bool isFull = offerCount >= 5;
+
+    // ✅ 2. 프로필 이미지 URL 추출 로직 (안전하게)
+    final List<dynamic> profileImages =
+        writer?['profile_image'] as List<dynamic>? ?? [];
+    final String? profileUrl = profileImages.isNotEmpty
+        ? profileImages[0].toString()
+        : null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -52,23 +59,26 @@ class GuideDiscoverView extends StatelessWidget {
           children: [
             Row(
               children: [
+                // ✅ 3. 형님 말씀대로 사진 없으면 회색 배경에 사람 아이콘!
                 CircleAvatar(
-                  backgroundImage: NetworkImage(
-                    (writer['profile_image'] != null &&
-                            (writer['profile_image'] as List).isNotEmpty)
-                        ? writer['profile_image'][0].toString()
-                        : 'https://picsum.photos/100',
-                  ),
+                  backgroundColor: Colors.grey.shade200,
+                  backgroundImage: (profileUrl != null && profileUrl.isNotEmpty)
+                      ? NetworkImage(profileUrl)
+                      : null,
+                  child: (profileUrl == null || profileUrl.isEmpty)
+                      ? const Icon(Icons.person, color: Colors.grey)
+                      : null,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    "${writer['nickname']} • ${req['companion_type']}",
+                    // ✅ 4. 닉네임 null 체크 추가
+                    "${writer?['nickname'] ?? '알 수 없는 유저'} • ${req['companion_type'] ?? '기타'}",
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
                 Text(
-                  "${req['budget']} P",
+                  "${req['budget'] ?? 0} P",
                   style: const TextStyle(
                     color: Colors.blue,
                     fontWeight: FontWeight.bold,
@@ -79,12 +89,12 @@ class GuideDiscoverView extends StatelessWidget {
             ),
             const Divider(height: 30),
             Text(
-              req['title'],
+              req['title'] ?? '제목 없음',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              req['content'] ?? '',
+              req['content'] ?? '내용이 없습니다.',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: Colors.grey[800]),
@@ -94,20 +104,17 @@ class GuideDiscoverView extends StatelessWidget {
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                // ✅ 3. 마감 상태면 null을 전달하여 버튼을 비활성화 시킵니다.
                 onPressed: isFull ? null : () => _showOfferModal(context, req),
                 style: ElevatedButton.styleFrom(
-                  // ✅ 4. 마감 상태일 때의 배경색 처리
                   backgroundColor: isFull
                       ? Colors.grey.shade400
                       : AppColors.travelingBlue,
-                  disabledBackgroundColor: Colors.grey.shade300, // 비활성화 시 배경색
+                  disabledBackgroundColor: Colors.grey.shade300,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: Text(
-                  // ✅ 5. 텍스트에 현재 제안 개수 표시
                   isFull
                       ? "제안 마감 ($offerCount/5)"
                       : "가이드 제안 보내기 ($offerCount/5)",
@@ -124,9 +131,7 @@ class GuideDiscoverView extends StatelessWidget {
     );
   }
 
-  /// ✉️ 제안서 작성 팝업 (BottomSheet)
   void _showOfferModal(BuildContext context, Map<String, dynamic> req) {
-    // 공고의 예산을 기본 제안가로 세팅
     final TextEditingController priceController = TextEditingController(
       text: req['budget']?.toString(),
     );
@@ -134,13 +139,13 @@ class GuideDiscoverView extends StatelessWidget {
 
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // 키보드가 올라올 때 화면이 가려지지 않게 함
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20, // 키보드 높이만큼 패딩
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
           left: 20,
           right: 20,
           top: 20,
@@ -155,7 +160,7 @@ class GuideDiscoverView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              "${req['title']} 공고에 대한 제안입니다.",
+              "'${req['title']}' 공고에 대한 제안입니다.",
               style: const TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 20),
@@ -185,23 +190,45 @@ class GuideDiscoverView extends StatelessWidget {
               height: 55,
               child: ElevatedButton(
                 onPressed: () async {
-                  // 1. 함수 호출 (String? 결과를 받음)
                   final resultMessage = await DiscoverService().sendOffer(
                     requestId: req['id'],
                     price: int.tryParse(priceController.text) ?? 0,
                     message: messageController.text,
                   );
 
-                  // 2. 결과 체크: 에러 메시지가 없으면(null이면) 성공!
                   if (resultMessage == null) {
                     if (context.mounted) {
-                      Navigator.pop(context); // 팝업 닫기
+                      try {
+                        // ✅ 여기서도 writer 정보가 null일 수 있으니 안전하게 처리
+                        final writer = req['users'] as Map<String, dynamic>?;
+                        final fcmToken = writer?['fcm_token'];
+
+                        if (fcmToken != null) {
+                          await Supabase.instance.client.functions.invoke(
+                            'send-push',
+                            body: {
+                              'targetType': 'token',
+                              'targetValue': fcmToken,
+                              'title': '📩 새로운 가이드 제안!',
+                              'body': "'${req['title']}' 공고에 가이드 제안이 도착했습니다.",
+                              'data': {'type': 'offer', 'requestId': req['id']},
+                            },
+                          );
+                          debugPrint("🚀 여행자에게 제안 푸시 발송 성공!");
+                        }
+                      } catch (e) {
+                        debugPrint("❌ 제안 푸시 발송 실패: $e");
+                      }
+
+                      Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text("✅ 제안을 성공적으로 보냈습니다!")),
                       );
+
+                      // ✅ 제안 성공 후 부모 위젯 새로고침 호출 (0/5 -> 1/5 반영)
+                      onRefresh();
                     }
                   } else {
-                    // 3. 에러 메시지가 있으면(5건 초과 등) 메시지 출력
                     if (context.mounted) {
                       ScaffoldMessenger.of(
                         context,

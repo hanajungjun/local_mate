@@ -20,6 +20,20 @@ class ReceivedOffersPage extends StatefulWidget {
 class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
   final DiscoverService _discoverService = DiscoverService();
   final MatchingService _matchingService = MatchingService();
+  late Future<List<Map<String, dynamic>>> _offersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOffers();
+  }
+
+  void _loadOffers() {
+    setState(() {
+      _offersFuture = _discoverService.fetchOffersForRequest(widget.requestId);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -34,22 +48,27 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
         iconTheme: const IconThemeData(color: Colors.black),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _discoverService.fetchOffersForRequest(widget.requestId),
+        future: _offersFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final offers = snapshot.data ?? [];
+          // 거절된 제안 필터링
+          final activeOffers = offers
+              .where((o) => o['status'] != 'rejected')
+              .toList();
 
-          if (offers.isEmpty) {
+          if (activeOffers.isEmpty) {
             return const Center(child: Text("아직 도착한 제안이 없어요."));
           }
 
           return ListView.builder(
             padding: const EdgeInsets.all(20),
-            itemCount: offers.length,
-            itemBuilder: (context, index) => _buildOfferCard(offers[index]),
+            itemCount: activeOffers.length,
+            itemBuilder: (context, index) =>
+                _buildOfferCard(activeOffers[index]),
           );
         },
       ),
@@ -57,7 +76,7 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
   }
 
   Widget _buildOfferCard(Map<String, dynamic> offer) {
-    final guide = offer['users']; // DiscoverService에서 조인한 유저 정보
+    final guide = offer['users'];
     final List<dynamic> profileImages = guide['profile_image'] ?? [];
     final String profileUrl = profileImages.isNotEmpty
         ? profileImages[0]
@@ -124,7 +143,13 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () {}, // 거절 로직
+                    onPressed: () async {
+                      // ❌ 거절 로직
+                      final bool success = await _discoverService.rejectOffer(
+                        offer['id'].toString(),
+                      );
+                      if (success) _loadOffers();
+                    },
                     style: OutlinedButton.styleFrom(
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -137,26 +162,22 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () async {
-                      final success = await _matchingService.acceptGuideOffer(
-                        offerId: offer['id'],
-                        requestId: widget.requestId,
-                        guideId: offer['guide_id'],
-                        title: widget.requestTitle,
-                      );
+                      // ✅ 수락 로직
+                      final String? roomId = await _matchingService
+                          .acceptGuideOffer(
+                            offerId: offer['id'].toString(),
+                            requestId: widget.requestId,
+                            guideId: offer['guide_id'].toString(),
+                            title: widget.requestTitle,
+                          );
 
-                      if (success && context.mounted) {
+                      if (roomId != null && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("🎉 매칭 성공! 채팅방이 열렸습니다."),
-                          ),
+                          const SnackBar(content: Text("🎉 매칭 성공!")),
                         );
-
-                        // 수락 후 홈으로 이동 (그러면 홈 화면 일정 리스트가 갱신됨)
                         Navigator.of(
                           context,
                         ).popUntil((route) => route.isFirst);
-
-                        // 필요하다면 여기서 바로 채팅 탭으로 인덱스를 바꿔줄 수도 있습니다!
                       }
                     },
                     style: ElevatedButton.styleFrom(

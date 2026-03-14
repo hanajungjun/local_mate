@@ -5,6 +5,7 @@ import 'package:localmate/features/matching/pages/request_create_page.dart';
 import 'package:localmate/features/matching/pages/received_offers_page.dart';
 import 'package:localmate/services/schedule_service.dart';
 import 'package:localmate/services/discover_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class TravelMode extends StatefulWidget {
   final VoidCallback? onStartRequest;
@@ -16,8 +17,9 @@ class TravelMode extends StatefulWidget {
 
 class _TravelModeState extends State<TravelMode> {
   late Future<List<Map<String, dynamic>>> _schedulesFuture;
-  // ✅ 추가: 내 공고 현황 데이터
-  late Future<List<Map<String, dynamic>>> _requestsFuture;
+
+  // 🔄 Future를 Stream으로 변경!
+  late Stream<List<Map<String, dynamic>>> _requestsStream;
 
   @override
   void initState() {
@@ -26,10 +28,17 @@ class _TravelModeState extends State<TravelMode> {
   }
 
   Future<void> _refresh() async {
+    final myId = Supabase.instance.client.auth.currentUser?.id;
+
     setState(() {
       _schedulesFuture = ScheduleService().getUserSchedules();
-      // ✅ 데이터 새로고침 시 공고 현황도 함께 갱신
-      _requestsFuture = DiscoverService().fetchMyTravelRequests();
+
+      // ✅ 순서 중요: from -> stream -> eq -> order 순서입니다.
+      _requestsStream = Supabase.instance.client
+          .from('travel_requests')
+          .stream(primaryKey: ['id']) // 1. 스트림을 먼저 열고
+          .eq('writer_id', myId ?? '') // 2. 그다음에 필터를 겁니다
+          .order('created_at', ascending: false); // 3. 정렬 추가
     });
   }
 
@@ -39,8 +48,7 @@ class _TravelModeState extends State<TravelMode> {
       onRefresh: _refresh,
       color: AppColors.travelingBlue,
       child: SingleChildScrollView(
-        physics:
-            const AlwaysScrollableScrollPhysics(), // RefreshIndicator 작동을 위해 필수
+        physics: const AlwaysScrollableScrollPhysics(),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -60,40 +68,42 @@ class _TravelModeState extends State<TravelMode> {
                 subtitle: "나만의 맞춤형 여행 공고 올리기",
                 icon: Icons.send_to_mobile_rounded,
                 color: AppColors.travelingBlue,
-                onTap: () {
-                  if (widget.onStartRequest != null)
-                    widget.onStartRequest!();
-                  else
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const RequestCreatePage(),
-                      ),
-                    );
+                onTap: () async {
+                  // ✅ [수정] 여기는 공고를 '생성'하는 곳입니다!
+                  // 1. 공고 생성 페이지로 이동
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RequestCreatePage(), // 👈 생성 페이지로!
+                    ),
+                  );
+
+                  // 2. 공고 만들고 돌아오면 리스트 새로고침
+                  _refresh();
                 },
               ),
             ),
 
             const SizedBox(height: 30),
 
-            // 🎯 ✅ 2. [신규 추가] 실시간 제안 현황 섹션
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: _requestsFuture,
+            // 2. 실시간 제안 현황 (여기는 그대로 두세요)
+            StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _requestsStream,
               builder: (context, snapshot) {
-                // 공고 자체가 아예 없으면 아무것도 안 보여줌
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
                 if (!snapshot.hasData || snapshot.data!.isEmpty)
                   return const SizedBox.shrink();
 
-                // 공고가 하나라도 있으면 리스트를 보여줌 (제안이 0건이어도 포함)
                 return _buildRequestStatusSection(snapshot.data!);
               },
             ),
 
-            // 3. 나의 여행 일정 (기존 코드)
+            // 3. 나의 여행 일정 (기존 코드 동일)
             FutureBuilder<List<Map<String, dynamic>>>(
               future: _schedulesFuture,
               builder: (context, snapshot) {
-                // ... 기존 FutureBuilder 로직 동일 ...
                 final schedules = snapshot.data ?? [];
                 if (schedules.isEmpty)
                   return _buildEmptyScheduleSection(AppColors.travelingBlue);
@@ -340,6 +350,7 @@ class _TravelModeState extends State<TravelMode> {
   }
 
   /// ✅ 실시간 제안 현황 위젯 (가로 스크롤 또는 리스트 형태)
+  /// ✅ 실시간 제안 현황 섹션 (이 함수를 통째로 교체하세요)
   Widget _buildRequestStatusSection(List<Map<String, dynamic>> requests) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -357,35 +368,36 @@ class _TravelModeState extends State<TravelMode> {
           padding: const EdgeInsets.symmetric(horizontal: 27),
           itemCount: requests.length,
           itemBuilder: (context, index) {
+            // 💡 여기서 각 줄의 데이터(req)를 정의합니다.
             final req = requests[index];
-            // 제안 개수 파악
-            final offerCount =
+
+            // 제안 개수 파악 (데이터 구조에 따라 0 처리)
+            final int offerCount =
                 (req['offers'] != null && (req['offers'] as List).isNotEmpty)
                 ? req['offers'][0]['count']
                 : 0;
 
-            final hasOffers = offerCount > 0;
+            final bool hasOffers = offerCount > 0;
 
             return GestureDetector(
-              onTap: () {
-                // 제안이 있든 없든 상세 관리 페이지로 이동
-                Navigator.push(
+              onTap: () async {
+                // ✅ 클릭 시 상세 페이지로 이동하고, 돌아오면 새로고침(_refresh) 실행
+                await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => ReceivedOffersPage(
-                      requestId: req['id'],
-                      requestTitle: req['title'],
+                      requestId: req['id'].toString(), // ID 전달
+                      requestTitle: req['title'] ?? '공고 상세', // 제목 전달
                     ),
                   ),
                 );
+                _refresh(); // 👈 돌아왔을 때 목록 다시 갱신!
               },
               child: Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: hasOffers
-                      ? Colors.blue.shade50
-                      : Colors.white, // 제안 있으면 강조
+                  color: hasOffers ? Colors.blue.shade50 : Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: hasOffers
@@ -396,7 +408,6 @@ class _TravelModeState extends State<TravelMode> {
                 ),
                 child: Row(
                   children: [
-                    // 제안 여부에 따른 아이콘 변경
                     Icon(
                       hasOffers
                           ? Icons.notifications_active
@@ -409,14 +420,13 @@ class _TravelModeState extends State<TravelMode> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            req['title'],
+                            req['title'] ?? '제목 없음',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                             ),
                           ),
                           const SizedBox(height: 4),
-                          // 텍스트로 상태 설명
                           Text(
                             hasOffers
                                 ? "새로운 제안 $offerCount건이 도착했어요!"

@@ -88,26 +88,44 @@ class DiscoverService {
     }
   }
 
-  /// 📋 [가이드 모드용] 여행 공고 리스트 가져오기
+  /// 📋 [가이드 모드용] 여행 공고 리스트 가져오기 (0/5 해결 버전)
+  /// 📋 [가이드 모드용] 여행 공고 리스트 (내가 제안한 공고 제외)
   Future<List<Map<String, dynamic>>> fetchTravelRequests({
     int limit = 20,
   }) async {
     try {
       final myId = _supabase.auth.currentUser?.id;
+      if (myId == null) return [];
 
-      // 1. 로그인 체크 (강력하게)
-      if (myId == null) {
-        debugPrint('⚠️ 로그인이 필요합니다.');
-        return [];
+      // 1. 🔥 내가 이미 제안을 보낸 공고 ID들만 싹 긁어옵니다.
+      final myOffers = await _supabase
+          .from('offers')
+          .select('request_id')
+          .eq('guide_id', myId);
+
+      // 2. 제외할 공고 ID 리스트 생성
+      List<String> excludeRequestIds = List<String>.from(
+        myOffers.map((o) => o['request_id'].toString()),
+      );
+
+      // 3. 쿼리 실행: 내가 쓴 글 제외 + 내가 제안한 글 제외
+      var query = _supabase
+          .from('travel_requests')
+          .select('''
+            *,
+            users!inner(nickname, profile_image, nationality, fcm_token),
+            offers(status)
+          ''')
+          .eq('status', 'searching')
+          .neq('writer_id', myId); // 내가 쓴 글 제외
+
+      // 💡 내가 제안한 공고가 있다면 목록에서 제외
+      if (excludeRequestIds.isNotEmpty) {
+        query = query.not('id', 'in', excludeRequestIds);
       }
 
-      // 2. 쿼리 실행
-      final data = await _supabase
-          .from('travel_requests')
-          .select('*, users!inner(nickname, profile_image, nationality)')
-          .eq('status', 'searching')
-          .neq('writer_id', myId) // ✅ 이제 myId가 null이 아님이 보장됨
-          .order('travel_at', ascending: true)
+      final data = await query
+          .order('created_at', ascending: false)
           .limit(limit);
 
       return List<Map<String, dynamic>>.from(data);
@@ -117,7 +135,6 @@ class DiscoverService {
     }
   }
 
-  /// ✉️ [가이드 전용] 여행 공고에 제안 보내기
   /// ✉️ [가이드 전용] 제안 보내기 (최대 5건 제한 추가)
   Future<String?> sendOffer({
     required String requestId,
@@ -128,17 +145,18 @@ class DiscoverService {
       final myId = _supabase.auth.currentUser?.id;
       if (myId == null) return "로그인이 필요합니다.";
 
-      // 1. 현재 공고에 달린 제안 개수 확인
-      final countResponse = await _supabase
+      // 💡 [수정] 거절된 제안('rejected')을 제외하고 현재 활성화된 제안만 카운트합니다.
+      final activeOffers = await _supabase
           .from('offers')
-          .select('id') // 특정 컬럼만 선택
-          .eq('request_id', requestId);
+          .select('id')
+          .eq('request_id', requestId)
+          .neq('status', 'rejected'); // 👈 거절된 건 슬롯에서 빼줌!
 
-      final currentCount = countResponse.length;
+      final currentCount = activeOffers.length;
 
-      // 2. 5건 이상이면 차단
+      // 2. 5건 이상이면 차단 (나중에 여기서 유료 유저 체크 로직 넣으면 BM 완성!)
       if (currentCount >= 5) {
-        return "이미 5건의 제안이 완료된 공고입니다.";
+        return "이미 제안 슬롯이 가득 찬 공고입니다.";
       }
 
       // 3. 제안 저장
@@ -147,15 +165,16 @@ class DiscoverService {
         'guide_id': myId,
         'price': price,
         'message': message,
+        'status': 'pending', // 기본값은 대기중
       });
 
-      return null; // 성공 시 null 반환
+      return null;
     } catch (e) {
       return "제안 전송 중 오류가 발생했습니다.";
     }
   }
 
-  /// 📋 [여행자 전용] 내가 등록한 여행 공고 목록 가져오기
+  /// 📋 [여행자 전용] 내가 등록한 여행 공고 목록 (제안 개수 실시간 반영용)
   Future<List<Map<String, dynamic>>> fetchMyTravelRequests() async {
     try {
       final myId = _supabase.auth.currentUser?.id;
@@ -163,13 +182,26 @@ class DiscoverService {
 
       final data = await _supabase
           .from('travel_requests')
-          .select('*, offers(count)') // 공고 데이터 + 제안 개수 카운트
+          .select('''
+            *,
+            offers(status)
+          ''') // 💡 count 대신 status를 가져와서 코드에서 rejected를 거릅니다.
           .eq('writer_id', myId)
-          // 매칭 수락 시 status가 'completed'로 변했다면 이 목록에서 자동으로 제외됩니다.
           .eq('status', 'searching')
           .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(data);
+      // 💡 여기서 rejected를 제외한 진짜 개수를 Map에 다시 넣어줍니다.
+      final processedData = data.map((req) {
+        final offers = req['offers'] as List? ?? [];
+        final activeCount = offers
+            .where((o) => o['status'] != 'rejected')
+            .length;
+
+        // UI에서 쓰기 편하게 'active_offers_count'라는 키로 저장
+        return {...req, 'active_offers_count': activeCount};
+      }).toList();
+
+      return processedData;
     } catch (e) {
       debugPrint('❌ 내 공고 로드 실패: $e');
       return [];
@@ -204,5 +236,22 @@ class DiscoverService {
         .eq('user_id', userId)
         .order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// ❌ 제안 거절하기 (상태를 'rejected'로 변경해서 슬롯 비우기)
+  Future<bool> rejectOffer(String offerId) async {
+    try {
+      // 1. Supabase의 'offers' 테이블에서 해당 ID의 상태를 업데이트합니다.
+      await _supabase
+          .from('offers')
+          .update({'status': 'rejected'})
+          .eq('id', offerId);
+
+      debugPrint("🚫 제안 거절 완료 (슬롯 확보): $offerId");
+      return true;
+    } catch (e) {
+      debugPrint("❌ 제안 거절 실패: $e");
+      return false;
+    }
   }
 }
