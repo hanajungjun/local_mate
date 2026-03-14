@@ -195,4 +195,14 @@ class DiscoverService {
       return [];
     }
   }
+
+  // discover_service.dart
+  Future<List<Map<String, dynamic>>> fetchUserRequests(String userId) async {
+    final response = await _supabase
+        .from('requests')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(response);
+  }
 }

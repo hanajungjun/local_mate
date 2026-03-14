@@ -8,10 +8,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:easy_localization/easy_localization.dart'; // ✅ 다시 부활!
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:permission_handler/permission_handler.dart';
-
+import 'package:localmate/features/chat/pages/chat_room_page.dart';
 import 'firebase_options.dart';
 import 'env.dart';
 import 'app/app.dart';
@@ -118,13 +118,86 @@ class _LocalMateAppWrapperState extends State<_LocalMateAppWrapper> {
   }
 
   Future<void> _prepareApp() async {
-    await _initFCM(); // 푸시 권한 및 토큰 로직
+    await _initFCM();
 
-    // 앱이 화면을 그릴 준비가 되었음을 알림
+    // --- 🔔 여기서부터 추가: 알림 클릭 리스너 ---
+
+    // 1. 앱이 완전히 꺼져있을 때 푸시 눌러서 들어온 경우 처리
+    RemoteMessage? initialMessage = await FirebaseMessaging.instance
+        .getInitialMessage();
+    if (initialMessage != null) {
+      _handleNotificationClick(initialMessage);
+    }
+
+    // 2. 앱이 백그라운드에 떠 있을 때 푸시 눌러서 들어온 경우 처리
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      _handleNotificationClick(message);
+    });
+
+    // ------------------------------------------
+
     if (mounted) {
       setState(() => _isReady = true);
-      // ✅ 6. 준비 완료 후 Splash 제거
       FlutterNativeSplash.remove();
+    }
+  }
+
+  // ✅ 알림 타입에 따른 이동 로직 (교통정리 함수)
+  void _handleNotificationClick(RemoteMessage message) {
+    final String? type = message.data['type'];
+    final String? roomId = message.data['roomId'];
+    debugPrint("📩 알림 클릭됨! 타입: $type, 방ID: $roomId");
+
+    if (type == 'match') {
+      // 🎉 매칭 성공 시 채팅 목록으로
+      appShellKey.currentState?.goToTab(3, chatTab: 0);
+    } else if (type == 'like') {
+      // ❤️ 좋아요 시 좋아요 리스트로
+      appShellKey.currentState?.goToTab(3, chatTab: 1);
+    } else if (type == 'chat' && roomId != null) {
+      // 💬 [핵심 추가] 메시지 알림 클릭 시 해당 채팅방으로 직접 이동
+      _navigateToSpecificChat(roomId);
+    }
+  }
+
+  // ✅ 특정 채팅방으로 바로 꽂아주는 함수 (안정성 강화)
+  Future<void> _navigateToSpecificChat(String roomId) async {
+    final supabase = Supabase.instance.client;
+
+    try {
+      // 1. 탭 이동부터 수행
+      appShellKey.currentState?.goToTab(3, chatTab: 0);
+
+      // 2. 데이터 가져오기 (비동기)
+      final roomData = await supabase
+          .from('my_chat_rooms')
+          .select('other_participant_id')
+          .eq('id', roomId)
+          .single();
+
+      final targetId = roomData['other_participant_id'];
+
+      final targetUser = await supabase
+          .from('users')
+          .select('id, nickname, profile_image')
+          .eq('id', targetId)
+          .single();
+
+      // 💡 [중요] 탭 이동 애니메이션이 끝날 때까지 아주 잠깐만 기다려줍니다 (에러 방지용)
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      final context = appShellKey.currentContext;
+      if (context != null && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                ChatRoomPage(roomId: roomId, targetUser: targetUser),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("❌ 채팅방 이동 중 에러 발생: $e");
     }
   }
 
@@ -138,10 +211,7 @@ class _LocalMateAppWrapperState extends State<_LocalMateAppWrapper> {
     }
 
     // ✅ 여기서 LocalMateApp이 실행되어야 tr() 등 다국어 함수가 context를 찾아갑니다.
-    return LocalMateApp(
-      key: appShellKey,
-      showOnboarding: widget.showOnboarding,
-    );
+    return LocalMateApp(showOnboarding: widget.showOnboarding);
   }
 }
 

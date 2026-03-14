@@ -94,17 +94,42 @@ class DiscoverPageState extends State<DiscoverPage> {
     _initializeData(); // 기존에 만들어둔 데이터 로드 함수 실행
   }
 
-  /// 🔍 상세 페이지 이동 로직
+  /// 🔍 상세 페이지 이동 로직 (DiscoverPage 내부)
   void _goToDetail(Map<String, dynamic> user) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => DiscoverDetailPage(
           user: user,
-          onSwipeAction: (direction) {
+          onSwipeAction: (direction) async {
+            // ✅ async 추가
             if (direction == 'left') {
               _controller.swipe(CardSwiperDirection.left);
             } else {
+              // ❤️ [추가] 상세 페이지에서 좋아요 눌렀을 때도 알림 발송!
+              try {
+                // 1. DB 저장
+                await _discoverService.sendLike(user['id'].toString());
+
+                // 2. 푸시 발송 (Edge Function 호출)
+                await Supabase.instance.client.functions.invoke(
+                  'send-push',
+                  body: {
+                    'targetType': 'token',
+                    'targetValue': user['fcm_token'], // 대상자 토큰
+                    'title': '❤️ 새로운 좋아요!',
+                    'body': '상세 프로필을 본 유저가 형님을 찜했습니다!',
+                    'data': {
+                      'type': 'like',
+                      'senderId': Supabase.instance.client.auth.currentUser?.id,
+                    },
+                  },
+                );
+                debugPrint("🚀 상세페이지 좋아요 푸시 발송 성공!");
+              } catch (e) {
+                debugPrint("❌ 상세페이지 푸시 발송 실패: $e");
+              }
+
               _controller.swipe(CardSwiperDirection.right);
             }
           },
@@ -137,12 +162,43 @@ class DiscoverPageState extends State<DiscoverPage> {
                         if (direction == 'left') {
                           _controller.swipe(CardSwiperDirection.left);
                         } else {
+                          // 👉 오른쪽 스와이프 (좋아요) 처리
                           if (_users.isNotEmpty &&
                               _currentIndex < _users.length) {
-                            final target = _users[_currentIndex];
+                            final target =
+                                _users[_currentIndex]; // 좋아요 누른 대상자 정보
+
+                            // 1. DB에 좋아요 기록 저장
                             await _discoverService.sendLike(
                               target['id'].toString(),
                             );
+
+                            // 2. 상대방에게 실시간 푸시 발송 (Edge Function 호출)
+                            try {
+                              await Supabase.instance.client.functions.invoke(
+                                'send-push',
+                                body: {
+                                  'targetType': 'token', // 또는 특정 유저 토픽
+                                  'targetValue':
+                                      target['fcm_token'], // 👈 대상자의 FCM 토큰
+                                  'title': '❤️ 새로운 좋아요!',
+                                  'body': '누군가 형님을 가이드로 선택하고 싶어 해요!',
+                                  'data': {
+                                    'type': 'like',
+                                    'senderId': Supabase
+                                        .instance
+                                        .client
+                                        .auth
+                                        .currentUser
+                                        ?.id,
+                                  },
+                                },
+                              );
+                              debugPrint("🚀 상대방에게 좋아요 푸시 발송 성공!");
+                            } catch (e) {
+                              debugPrint("❌ 푸시 발송 실패: $e");
+                            }
+
                             _controller.swipe(CardSwiperDirection.right);
                           }
                         }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
-import 'package:localmate/services/chat_service.dart'; // 💡 서비스 추가
+import 'package:localmate/services/chat_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ChatRoomPage extends StatefulWidget {
@@ -19,15 +19,55 @@ class ChatRoomPage extends StatefulWidget {
 
 class _ChatRoomPageState extends State<ChatRoomPage> {
   final TextEditingController _controller = TextEditingController();
-  final ChatService _chatService = ChatService(); //
+  final ChatService _chatService = ChatService();
   final supabase = Supabase.instance.client;
   late final Stream<List<Map<String, dynamic>>> _messageStream;
 
   @override
   void initState() {
     super.initState();
-    // 💡 실시간 메시지 스트림 연결
     _messageStream = _chatService.getMessageStream(widget.roomId);
+    _updatePresence(true);
+  }
+
+  @override
+  void dispose() {
+    _updatePresence(false);
+    _handleTyping("");
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _updatePresence(bool isActive) async {
+    final myId = supabase.auth.currentUser!.id;
+    try {
+      await supabase.rpc(
+        'update_room_presence',
+        params: {
+          'room_id': widget.roomId,
+          'user_id': myId,
+          'is_active': isActive,
+        },
+      );
+    } catch (e) {
+      debugPrint("❌ Presence 업데이트 실패: $e");
+    }
+  }
+
+  void _handleTyping(String text) async {
+    final myId = supabase.auth.currentUser!.id;
+    try {
+      await supabase.rpc(
+        'update_typing_presence',
+        params: {
+          'room_id': widget.roomId,
+          'user_id': myId,
+          'is_typing': text.isNotEmpty,
+        },
+      );
+    } catch (e) {
+      debugPrint("❌ Typing 업데이트 실패: $e");
+    }
   }
 
   void _onSend() async {
@@ -35,7 +75,8 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     if (text.isEmpty) return;
 
     _controller.clear();
-    // 💡 서비스로 메시지 전송
+    _handleTyping("");
+
     await _chatService.sendMessage(
       widget.roomId,
       supabase.auth.currentUser!.id,
@@ -53,7 +94,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          widget.targetUser['nickname'] ?? '메이트', //
+          widget.targetUser['nickname'] ?? '메이트',
           style: const TextStyle(
             color: Colors.black,
             fontSize: 16,
@@ -66,10 +107,8 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       ),
       body: Column(
         children: [
-          // 💡 상단 정보 바 (가이드 관련 정보)
           _buildInfoBar(),
-
-          // 💡 실시간 채팅 리스트
+          _buildTypingIndicator(),
           Expanded(
             child: StreamBuilder<List<Map<String, dynamic>>>(
               stream: _messageStream,
@@ -79,26 +118,123 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
                 final messages = snapshot.data!;
                 return ListView.builder(
+                  reverse: true,
                   padding: const EdgeInsets.all(20),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index];
                     final bool isMe =
                         msg['sender_id'] == supabase.auth.currentUser!.id;
+
+                    // ✅ 여기서 함수 호출만 합니다!
                     return _buildMessageBubble(
                       isMe: isMe,
-                      text: msg['content'],
+                      text: msg['content'] ?? '',
+                      type: msg['message_type'], // DB 컬럼명 확인 필수
+                      imageUrl: msg['image_url'], // DB 컬럼명 확인 필수
                     );
                   },
                 );
               },
             ),
           ),
-
-          // 입력창
           _buildInputArea(),
         ],
       ),
+    );
+  }
+
+  // ✅ 통합된 메시지 버블 (텍스트/이미지 모두 대응)
+  Widget _buildMessageBubble({
+    required bool isMe,
+    required String text,
+    String? type,
+    String? imageUrl,
+  }) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 15),
+        padding: type == 'image'
+            ? const EdgeInsets.all(4) // 이미지는 패딩 최소화
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        constraints: const BoxConstraints(maxWidth: 250),
+        decoration: BoxDecoration(
+          color: isMe ? AppColors.travelingBlue : Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMe ? 16 : 0),
+            bottomRight: Radius.circular(isMe ? 0 : 16),
+          ),
+          boxShadow: [
+            if (!isMe)
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
+          ],
+        ),
+        child: type == 'image' && imageUrl != null
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                      const Icon(Icons.broken_image, size: 50),
+                ),
+              )
+            : Text(
+                text,
+                style: TextStyle(
+                  color: isMe ? Colors.white : Colors.black87,
+                  fontSize: 15,
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildTypingIndicator() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: supabase
+          .from('chat_rooms')
+          .stream(primaryKey: ['id'])
+          .eq('id', widget.roomId),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+          final roomData = snapshot.data!.first;
+          final typingUsers = List<String>.from(roomData['typing_users'] ?? []);
+          final targetId = widget.targetUser['id'];
+
+          if (typingUsers.contains(targetId)) {
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "${widget.targetUser['nickname']}님이 입력 중입니다...",
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+        }
+        return const SizedBox.shrink();
+      },
     );
   }
 
@@ -128,37 +264,6 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
-  Widget _buildMessageBubble({required bool isMe, required String text}) {
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 15),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: const BoxConstraints(maxWidth: 250),
-        decoration: BoxDecoration(
-          color: isMe ? AppColors.travelingBlue : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 0),
-            bottomRight: Radius.circular(isMe ? 0 : 16),
-          ),
-          boxShadow: [
-            if (!isMe)
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
-          ],
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isMe ? Colors.white : Colors.black87,
-            fontSize: 15,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildInputArea() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -176,6 +281,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
             Expanded(
               child: TextField(
                 controller: _controller,
+                onChanged: _handleTyping,
                 onSubmitted: (_) => _onSend(),
                 decoration: InputDecoration(
                   hintText: "메시지를 입력하세요...",

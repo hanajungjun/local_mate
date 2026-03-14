@@ -24,19 +24,20 @@ class _ChatListPageState extends State<ChatListPage> {
     super.initState();
     _loadInitialData();
 
-    // ✅ 실시간 리스너: 채팅방이 새로 생기면 상단 '새로운 메이트' 목록을 자동 갱신
     _supabase.from('chat_rooms').stream(primaryKey: ['id']).listen((_) {
+      if (mounted) _loadInitialData();
+    });
+
+    _supabase.from('likes').stream(primaryKey: ['id']).listen((_) {
       if (mounted) _loadInitialData();
     });
   }
 
-  // 상단 '새로운 메이트' (아직 대화 안 한 매칭 후보) 로드
   Future<void> _loadInitialData() async {
     try {
       final allMatches = await _discoverService.fetchMatches();
       final myId = _supabase.auth.currentUser!.id;
 
-      // 현재 내가 참여 중인 모든 채팅방의 상대방 ID 목록 가져오기
       final roomsResponse = await _supabase
           .from('chat_rooms')
           .select('participant_a, participant_b')
@@ -50,7 +51,6 @@ class _ChatListPageState extends State<ChatListPage> {
 
       if (mounted) {
         setState(() {
-          // 이미 채팅 중인 사람은 상단 바에서 제외
           _matches = allMatches.where((user) {
             return !existingChatUserIds.contains(user['id']);
           }).toList();
@@ -62,25 +62,38 @@ class _ChatListPageState extends State<ChatListPage> {
     }
   }
 
-  // 채팅방으로 이동 (생성 포함)
+  // ✅ 채팅방 이동 함수 (닉네임 데이터 포함)
   Future<void> _navigateToChat(
-    String targetId, [
-    Map<String, dynamic>? user,
-  ]) async {
+    String targetId,
+    Map<String, dynamic> targetUser,
+  ) async {
     final myId = _supabase.auth.currentUser!.id;
-    final roomId = await _chatService.getOrCreateRoom(myId, targetId);
 
-    if (mounted) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ChatRoomPage(
-            roomId: roomId,
-            targetUser: user ?? {'id': targetId, 'nickname': '메이트'},
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final roomId = await _chatService.getOrCreateRoom(myId, targetId);
+
+      if (mounted) {
+        Navigator.pop(context); // 로딩 닫기
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatRoomPage(
+              roomId: roomId,
+              targetUser: targetUser, // ✅ 여기서 넘겨준 닉네임이 채팅방 상단에 뜸!
+            ),
           ),
-        ),
-      );
-      _loadInitialData(); // 돌아오면 상단 바 갱신
+        );
+        _loadInitialData();
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      debugPrint("❌ 채팅방 이동 실패: $e");
     }
   }
 
@@ -93,10 +106,7 @@ class _ChatListPageState extends State<ChatListPage> {
         onRefresh: _loadInitialData,
         child: CustomScrollView(
           slivers: [
-            // 1. 상단: 새로운 메이트 (가로 스크롤)
             SliverToBoxAdapter(child: _buildMatchBar()),
-
-            // 2. 하단: 실시간 채팅 목록 (세로 리스트)
             SliverToBoxAdapter(
               child: const Padding(
                 padding: EdgeInsets.fromLTRB(16, 24, 16, 8),
@@ -164,29 +174,7 @@ class _ChatListPageState extends State<ChatListPage> {
     );
   }
 
-  Widget _buildEmptyMatchPlaceholder() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 32,
-            backgroundColor: Colors.grey.shade100,
-            child: Icon(Icons.add, color: Colors.grey.shade400),
-          ),
-          const SizedBox(width: 16),
-          Text(
-            "새로운 메이트를 매칭해보세요!",
-            style: TextStyle(color: Colors.grey.shade500),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildChatListSection() {
-    final myId = _supabase.auth.currentUser!.id;
-
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _chatService.getChatRoomsStream(),
       builder: (context, snapshot) {
@@ -208,33 +196,80 @@ class _ChatListPageState extends State<ChatListPage> {
             final room = rooms[index];
             final String targetId = room['other_participant_id'];
 
-            return ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 4,
-              ),
-              leading: const CircleAvatar(
-                backgroundColor: Colors.blueAccent,
-                child: Icon(Icons.person, color: Colors.white),
-              ),
-              // 💡 닉네임은 현재 targetId만 알 수 있으므로, 실제 서비스 시 users 테이블과 조인된 데이터를 사용하세요.
-              title: Text("매칭된 메이트 (${targetId.substring(0, 5)})"),
-              subtitle: Text(
-                room['last_message'] ?? "대화를 시작해보세요!",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Text(
-                room['created_at'] != null
-                    ? room['created_at'].toString().substring(11, 16)
-                    : "",
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              onTap: () => _navigateToChat(targetId),
+            return FutureBuilder<Map<String, dynamic>>(
+              future: _supabase
+                  .from('users')
+                  .select('id, nickname, profile_image')
+                  .eq('id', targetId)
+                  .single(),
+              builder: (context, userSnapshot) {
+                final userData = userSnapshot.data;
+                final String nickname = userData?['nickname'] ?? "메이트";
+
+                // ✅ 에러 방지용: null 체크와 isEmpty 체크를 확실하게 bool로 변환
+                final bool hasProfile =
+                    userData != null &&
+                    userData['profile_image'] != null &&
+                    (userData['profile_image'] as List).isNotEmpty;
+
+                final String? profileImg = hasProfile
+                    ? userData!['profile_image'][0]
+                    : null;
+
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  leading: CircleAvatar(
+                    backgroundImage: profileImg != null
+                        ? NetworkImage(profileImg)
+                        : null,
+                    backgroundColor: Colors.blueAccent,
+                    child: profileImg == null
+                        ? const Icon(Icons.person, color: Colors.white)
+                        : null,
+                  ),
+                  title: Text(
+                    nickname,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    room['last_message'] ?? "대화를 시작해보세요!",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => _navigateToChat(targetId, {
+                    'id': targetId,
+                    'nickname': nickname,
+                    'profile_image': userData?['profile_image'],
+                  }),
+                );
+              },
             );
           }, childCount: rooms.length),
         );
       },
+    );
+  }
+
+  Widget _buildEmptyMatchPlaceholder() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: Colors.grey.shade100,
+            child: Icon(Icons.add, color: Colors.grey.shade400),
+          ),
+          const SizedBox(width: 16),
+          Text(
+            "새로운 메이트를 매칭해보세요!",
+            style: TextStyle(color: Colors.grey.shade500),
+          ),
+        ],
+      ),
     );
   }
 }

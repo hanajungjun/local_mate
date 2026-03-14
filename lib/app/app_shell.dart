@@ -27,6 +27,7 @@ class AppShell extends StatefulWidget {
 // ✅ 3. 클래스 이름 앞의 언더바(_)를 제거하여 외부에서 'AppShellState' 타입을 인식하게 합니다.
 class AppShellState extends State<AppShell> {
   int _currentIndex = 0;
+  int _chatInitialTab = 0;
   final _loginService = LoginService();
   final GlobalKey<DiscoverPageState> _discoverKey =
       GlobalKey<DiscoverPageState>();
@@ -40,8 +41,12 @@ class AppShellState extends State<AppShell> {
   }
 
   // ✅ 4. 외부에서 호출할 탭 변경 함수를 만듭니다.
-  void goToTab(int index) {
-    setState(() => _currentIndex = index);
+  void goToTab(int index, {int chatTab = 0}) {
+    debugPrint("🔄 AppShell: 탭 이동 시도 -> $index번 탭, 채팅서브탭: $chatTab");
+    setState(() {
+      _currentIndex = index;
+      _chatInitialTab = chatTab; // 좋아요 푸시면 1이 들어옴
+    });
   }
 
   Future<void> _checkNewUserAndShowDialog() async {
@@ -99,7 +104,7 @@ class AppShellState extends State<AppShell> {
       ),
       const MapViewPage(),
       DiscoverPage(key: _discoverKey),
-      const ChatMainPage(),
+      ChatMainPage(initialTabIndex: _chatInitialTab), // ✅ 변수 전달!
       const MyProfilePage(),
     ];
 

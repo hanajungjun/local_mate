@@ -9,9 +9,8 @@ import 'package:localmate/app/route_observer.dart';
 class LocalMateApp extends StatefulWidget {
   final bool showOnboarding;
 
-  // ✅ 1. 생성자에서 key를 받을 수 있도록 super.key를 유지합니다.
-  const LocalMateApp({super.key, required this.showOnboarding});
-
+  const LocalMateApp({Key? key, required this.showOnboarding})
+    : super(key: null);
   @override
   State<LocalMateApp> createState() => _LocalMateAppState();
 }
@@ -26,12 +25,16 @@ class _LocalMateAppState extends State<LocalMateApp> {
   }
 
   Future<void> _initApp() async {
+    // 앱 초기화 로직 (필요시 세션 체크 등 수행 가능)
     await Future.delayed(const Duration(milliseconds: 500));
     if (mounted) setState(() => _initialized = true);
   }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ 현재 로그인 세션 확인
+    final session = Supabase.instance.client.auth.currentSession;
+
     return MaterialApp(
       title: 'Local Mate',
       debugShowCheckedModeBanner: false,
@@ -50,15 +53,18 @@ class _LocalMateAppState extends State<LocalMateApp> {
           ),
         ),
       ),
-      // ✅ 2. home 부분 수정
-      // 로그인 여부에 따라 바로 AppShell로 보낸다면 여기서도 key를 넘겨야 합니다.
+      // ✅ home 수정: 초기화 전엔 로딩, 초기화 후엔 로그인 세션 여부에 따라 분기
       home: !_initialized
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : const LoginPage(),
+          : (session != null
+                ? AppShell(key: appShellKey) // 로그인 되어있으면 키 꽂아서 바로 진입
+                : const LoginPage()),
 
-      // ✅ 3. routes 부분 수정 (가장 중요!)
-      // 'appShellKey'를 직접 사용하거나, LocalMateApp이 받은 widget.key를 전달합니다.
-      routes: {'/app_shell': (context) => AppShell(key: appShellKey)},
+      // ✅ routes 수정: 네비게이터로 이동할 때도 키가 꽂히도록 설정
+      routes: {
+        '/app_shell': (context) => AppShell(key: appShellKey),
+        '/login': (context) => const LoginPage(),
+      },
     );
   }
 }
