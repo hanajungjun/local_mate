@@ -5,31 +5,47 @@ class ChatService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   // 🎯 1. 채팅방 가져오기 또는 새로 만들기
-  Future<String> getOrCreateRoom(String myId, String targetId) async {
+  // services/chat_service.dart
+
+  // 💡 requestId 뒤에 ?를 붙여서 null이 가능하게 하고, 기본값을 null로 설정합니다.
+  Future<String> getOrCreateRoom(
+    String myId,
+    String targetId, {
+    String? requestId,
+  }) async {
     try {
-      // 이미 방이 있는지 확인
-      final existingRoom = await _supabase
-          .from('chat_rooms')
-          .select()
+      // 1. 기존 방 확인 로직
+      var query = _supabase.from('chat_rooms').select('id');
+
+      if (requestId != null) {
+        // 공고 기반 채팅일 때
+        query = query.eq('request_id', requestId);
+      }
+
+      final existingRoom = await query
           .or(
             'and(participant_a.eq.$myId,participant_b.eq.$targetId),and(participant_a.eq.$targetId,participant_b.eq.$myId)',
           )
           .maybeSingle();
 
-      if (existingRoom != null) {
-        return existingRoom['id'];
-      }
+      if (existingRoom != null) return existingRoom['id'];
 
-      // 없으면 새로 생성
+      // 2. 새 방 생성
       final newRoom = await _supabase
           .from('chat_rooms')
-          .insert({'participant_a': myId, 'participant_b': targetId})
+          .insert({
+            'participant_a': myId,
+            'participant_b': targetId,
+            'request_id': requestId, // null이면 null로 들어감
+            'last_message': '대화를 시작해보세요!',
+            'status': 'active',
+          })
           .select()
           .single();
 
       return newRoom['id'];
     } catch (e) {
-      debugPrint('채팅방 생성 에러: $e');
+      debugPrint("❌ 채팅방 생성 에러: $e");
       rethrow;
     }
   }

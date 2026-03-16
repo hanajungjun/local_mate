@@ -46,7 +46,7 @@ class UserService {
         .eq('auth_uid', user.id);
   }
 
-  /// ✈️ 여행 공고 생성
+  /// ✈️ 여행 공고 생성 (위도/경도 추가)
   Future<void> createTravelRequest({
     required String title,
     required String locationName,
@@ -55,6 +55,8 @@ class UserService {
     String? content,
     int headcount = 1,
     int? budget,
+    double? latitude, // ✅ 추가
+    double? longitude, // ✅ 추가
   }) async {
     final user = _supabase.auth.currentUser;
     if (user == null) throw Exception("로그인이 필요합니다.");
@@ -77,6 +79,8 @@ class UserService {
       'headcount': headcount,
       'budget': budget,
       'status': 'searching',
+      if (latitude != null) 'latitude': latitude, // ✅ null이면 안 넣음
+      if (longitude != null) 'longitude': longitude, // ✅ null이면 안 넣음
     });
   }
 

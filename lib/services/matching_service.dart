@@ -107,4 +107,35 @@ class MatchingService {
       debugPrint('❌ 채팅방 생성 실패: $e');
     }
   }
+
+  Future<bool> cancelMatching({
+    required String requestId,
+    required String offerId,
+    required String roomId,
+  }) async {
+    try {
+      // 1. 공고를 다시 'searching' 상태로 복구 (장터에 다시 내놓기)
+      await _supabase
+          .from('travel_requests')
+          .update({'status': 'searching'})
+          .eq('id', requestId);
+
+      // 2. 해당 제안은 'cancelled'로 처리 (이 가이드는 탈락)
+      await _supabase
+          .from('offers')
+          .update({'status': 'cancelled'})
+          .eq('id', offerId);
+
+      // 3. 채팅방은 종료 상태로 변경 (더 이상 톡 못하게)
+      await _supabase
+          .from('chat_rooms')
+          .update({'status': 'cancelled', 'last_message': '❌ 매칭이 취소되었습니다.'})
+          .eq('id', roomId);
+
+      return true;
+    } catch (e) {
+      debugPrint("❌ 매칭 취소 실패: $e");
+      return false;
+    }
+  }
 }

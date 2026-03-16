@@ -5,9 +5,9 @@ import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/features/auth/login_page.dart';
 import 'package:localmate/features/setting/pages/settings_page.dart';
 import 'package:localmate/features/mypage/profile/profile_edit_page.dart';
+import 'package:localmate/features/mypage/wishlist/wishlist_page.dart'; // ✅ 추가
 
 class MyProfilePage extends StatefulWidget {
-  // ✅ 데이터 로드를 위해 Stateful로 변경
   const MyProfilePage({super.key});
 
   @override
@@ -16,7 +16,7 @@ class MyProfilePage extends StatefulWidget {
 
 class _MyProfilePageState extends State<MyProfilePage> {
   final _loginService = LoginService();
-  final _profileService = ProfileService(); // ✅ 유저 정보 엔진
+  final _profileService = ProfileService();
 
   Map<String, dynamic>? _profileData;
   bool _isLoading = true;
@@ -24,17 +24,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
   @override
   void initState() {
     super.initState();
-    _loadMyProfile(); // ✅ 진입 시 프로필 읽어오기
+    _loadMyProfile();
   }
 
   Future<void> _loadMyProfile() async {
-    // 1. 시작 시점 체크 (선택사항이나 권장)
     if (!mounted) return;
     setState(() => _isLoading = true);
 
     final data = await _profileService.getMyProfile();
 
-    // 🔥 핵심: 비동기(await) 작업이 끝난 후, 위젯이 아직 화면에 있는지 확인!
     if (!mounted) return;
 
     setState(() {
@@ -59,7 +57,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
           IconButton(
             icon: const Icon(Icons.settings_outlined, color: Colors.black),
             onPressed: () {
-              // ✅ 2. 버튼 클릭 시 SettingsPage로 이동!
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsPage()),
@@ -69,19 +66,18 @@ class _MyProfilePageState extends State<MyProfilePage> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator()) // 로딩 중일 때
+          ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              // ✅ 아래로 당겨서 새로고침 가능
               onRefresh: _loadMyProfile,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   children: [
-                    _buildProfileSection(), // 1. 프로필 (연동 완료)
+                    _buildProfileSection(),
                     const Divider(thickness: 8, color: Color(0xFFF5F5F5)),
-                    _buildWalletSection(), // 2. 지갑
+                    _buildWalletSection(),
                     const Divider(thickness: 8, color: Color(0xFFF5F5F5)),
-                    _buildMenuSection(context), // 3. 메뉴
+                    _buildMenuSection(context),
                   ],
                 ),
               ),
@@ -89,19 +85,15 @@ class _MyProfilePageState extends State<MyProfilePage> {
     );
   }
 
-  // ✅ 상단 프로필 영역 (DB 연동 버전)
   Widget _buildProfileSection() {
-    // DB에 데이터가 없으면 기본값 노출
     final String nickname = _profileData?['nickname'] ?? "여행하는 메이트";
-    final double rating = (_profileData?['rating'] ?? 5)
-        .toDouble(); // ✅ .toDouble() 추가
+    final double rating = (_profileData?['rating'] ?? 5).toDouble();
     final List<dynamic> images = _profileData?['profile_image'] ?? [];
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Row(
         children: [
-          // 💡 첫 번째 프로필 이미지가 있으면 보여주고, 없으면 아이콘
           CircleAvatar(
             radius: 35,
             backgroundColor: const Color(0xFFEEEEEE),
@@ -139,10 +131,8 @@ class _MyProfilePageState extends State<MyProfilePage> {
               ],
             ),
           ),
-          // ✅ 프로필 수정 버튼 연동
           OutlinedButton(
             onPressed: () async {
-              // 수정 페이지 갔다가 돌아오면 데이터 다시 로드!
               await Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -166,7 +156,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
     );
   }
 
-  // 지갑/수익 영역
   Widget _buildWalletSection() {
     return Padding(
       padding: const EdgeInsets.all(24.0),
@@ -229,7 +218,13 @@ class _MyProfilePageState extends State<MyProfilePage> {
     return Column(
       children: [
         _menuTile(Icons.storefront_outlined, "아이템 상점", "가이드 홍보 아이템 사기", () {}),
-        _menuTile(Icons.favorite_border, "관심 목록", "내가 찜한 가이드/공고", () {}),
+        // ✅ 관심목록 → WishlistPage로 이동
+        _menuTile(Icons.favorite_border, "관심 목록", "내가 찜한 메이트 & 제안 공고", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const WishlistPage()),
+          );
+        }),
         _menuTile(Icons.card_membership, "이용권 관리", "멤버십 구독 정보", () {}),
         _menuTile(Icons.help_outline, "고객센터 (로그아웃)", "세션을 종료하고 나갑니다", () async {
           await _loginService.signOut();

@@ -3,6 +3,7 @@ import 'package:localmate/core/utils/date_utils.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/features/matching/pages/request_create_page.dart';
 import 'package:localmate/features/matching/pages/received_offers_page.dart';
+import 'package:localmate/features/matching/pages/tour_detail_page.dart';
 import 'package:localmate/services/schedule_service.dart';
 import 'package:localmate/services/discover_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -133,36 +134,19 @@ class _TravelModeState extends State<TravelMode> {
         ),
         const SizedBox(height: 10),
         Container(
-          height: 160,
           width: double.infinity,
           margin: const EdgeInsets.symmetric(horizontal: 27),
+          padding: const EdgeInsets.symmetric(vertical: 30), // 높이 대신 패딩으로 조절
           decoration: BoxDecoration(
             color: Colors.grey.shade50,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: Colors.grey.shade100), // 테두리도 더 연하게
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.calendar_today_outlined,
-                color: Colors.grey.shade300,
-                size: 40,
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                "예정된 여행 일정이 없습니다.",
-                style: TextStyle(color: Colors.grey, fontSize: 14),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () {},
-                child: Text(
-                  "새로운 여행 시작하기",
-                  style: TextStyle(color: color, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
+          child: const Center(
+            child: Text(
+              "예정된 여행 일정이 없습니다.",
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
           ),
         ),
       ],
@@ -236,7 +220,7 @@ class _TravelModeState extends State<TravelMode> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                "나의 여행 일정",
+                "나의 확정된 여행 일정", // 👈 문구도 '확정' 강조!
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               Text(
@@ -258,15 +242,26 @@ class _TravelModeState extends State<TravelMode> {
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final item = schedules[index];
-            final DateTime tripDate = DateTime.parse(item['trip_date']);
-            final String formattedDate = DateUtilsHelper.formatScheduleDate(
-              tripDate,
-            );
-            return _buildVerticalScheduleCard(
-              formattedDate,
-              item['title'] ?? "제목 없음",
-              item['partner_name'] ?? "미정",
-              color,
+
+            // 💡 새로 추가한 meeting_date와 meeting_time 활용
+            final String date = item['meeting_date'] ?? "날짜 미정";
+            final String time = item['meeting_time'] ?? "";
+
+            return InkWell(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TourDetailPage(tourData: item),
+                  ),
+                );
+              },
+              child: _buildVerticalScheduleCard(
+                "$date $time", // 날짜와 시간 합쳐서 표시
+                item['travel_requests']['title'] ?? "제목 없음",
+                item['users']['nickname'] ?? "로컬 메이트",
+                color,
+              ),
             );
           },
         ),

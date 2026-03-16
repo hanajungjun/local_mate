@@ -41,6 +41,41 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     super.dispose();
   }
 
+  Future<void> _selectDateTime(String offerId) async {
+    DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+
+    if (pickedDate == null) return;
+
+    TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+
+    if (pickedTime == null) return;
+
+    // 💡 선택된 날짜와 시간을 가공 (예: "2026-03-20 14:00")
+    final String finalDateTime =
+        "${pickedDate.toString().split(' ')[0]} ${pickedTime.format(context)}";
+
+    // DB 업데이트
+    await supabase
+        .from('offers')
+        .update({
+          'status': 'request_confirm',
+          'confirmed_at': finalDateTime, // DB에 컬럼 추가 필요!
+        })
+        .eq('id', offerId);
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("📅 $finalDateTime 투어 확정을 요청했습니다.")));
+  }
+
   // ✅ 상대방이 나갔는지 확인
   Future<void> _checkPartnerStatus() async {
     try {
@@ -80,6 +115,64 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       );
     } catch (e) {
       debugPrint("❌ Typing 업데이트 실패: $e");
+    }
+  }
+
+  // 🔘 상단 바 버튼 클릭 시 실행될 실제 로직
+  void _handleTourAction(
+    String status,
+    bool isTraveler,
+    String? offerId,
+  ) async {
+    if (offerId == null) return;
+
+    if (!isTraveler) {
+      // 🙋‍♂️ 가이드: 날짜와 시간을 선택합니다.
+      DateTime? pickedDate = await showDatePicker(
+        context: context,
+        initialDate: DateTime.now(),
+        firstDate: DateTime.now(),
+        lastDate: DateTime.now().add(const Duration(days: 365)),
+        helpText: "투어 날짜를 선택하세요",
+      );
+
+      if (pickedDate == null) return;
+
+      TimeOfDay? pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.now(),
+        helpText: "시작 시간을 선택하세요",
+      );
+
+      if (pickedTime == null) return;
+
+      final dateStr = pickedDate.toString().split(' ')[0]; // yyyy-mm-dd
+      final timeStr = pickedTime.format(context); // hh:mm AM/PM
+
+      await supabase
+          .from('offers')
+          .update({
+            'status': 'request_confirm',
+            'meeting_date': dateStr,
+            'meeting_time': timeStr,
+          })
+          .eq('id', offerId);
+    } else {
+      // 🙋‍♀️ 여행자: 최종 확정 도장 찍기
+      await supabase
+          .from('offers')
+          .update({'status': 'confirmed'})
+          .eq('id', offerId);
+      final requestId = widget.targetUser['request_id'];
+      if (requestId != null) {
+        await supabase
+            .from('travel_requests')
+            .update({'status': 'confirmed'})
+            .eq('id', requestId);
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("🎉 투어가 최종 확정되었습니다!")));
     }
   }
 
@@ -250,26 +343,108 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   Widget _buildInfoBar() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: supabase
+          .from('offers')
+          .stream(primaryKey: ['id'])
+          .eq('request_id', widget.targetUser['request_id'] ?? ''),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return _buildInfoContainer("메이트와 대화 중입니다.", Colors.blue.shade50);
+        }
+
+        final offer = snapshot.data!.firstWhere(
+          (o) => o['guide_id'] == widget.targetUser['id'],
+          orElse: () => {},
+        );
+
+        if (offer.isEmpty) {
+          return _buildInfoContainer("메이트와 대화 중입니다.", Colors.blue.shade50);
+        }
+
+        final status = offer['status'] ?? 'matched';
+        final bool isTraveler = widget.targetUser['guide_bio'] == null;
+
+        // 💡 날짜/시간 데이터 가져오기 (DB 컬럼명: meeting_date, meeting_time 예정)
+        final String? mDate = offer['meeting_date'];
+        final String? mTime = offer['meeting_time'];
+
+        String message = "메이트와 일정을 합의해 주세요.";
+        String? btnText;
+        Color barColor = Colors.blue.shade50;
+
+        if (status == 'request_confirm') {
+          message = isTraveler ? "📅 $mDate $mTime 투어 요청!" : "승인을 기다리는 중입니다...";
+          btnText = isTraveler ? "최종 확정" : "수정하기"; // 가이드는 수정 가능
+          barColor = Colors.orange.shade50;
+        } else if (status == 'confirmed') {
+          message = "확정 완료! ($mDate $mTime) 🎉";
+          barColor = Colors.green.shade50;
+        } else {
+          if (!isTraveler) btnText = "확정 요청";
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          color: barColor,
+          child: Row(
+            children: [
+              Icon(
+                status == 'confirmed' ? Icons.check_circle : Icons.event,
+                size: 18,
+                color: status == 'confirmed' ? Colors.green : Colors.blue,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: status == 'confirmed'
+                        ? Colors.green.shade900
+                        : Colors.blue.shade900,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (btnText != null && !_isPartnerLeft)
+                ElevatedButton(
+                  onPressed: () => _handleTourAction(
+                    status,
+                    isTraveler,
+                    offer['id']?.toString(),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: btnText == "최종 확정"
+                        ? Colors.orange
+                        : AppColors.travelingBlue,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    minimumSize: const Size(60, 32),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    btnText,
+                    style: const TextStyle(fontSize: 11, color: Colors.white),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // 💡 중복 코드를 줄이기 위한 위젯 헬퍼
+  Widget _buildInfoContainer(String text, Color color) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      color: Colors.blue.shade50,
+      color: color,
       child: Row(
         children: [
           const Icon(Icons.info_outline, size: 18, color: Colors.blue),
           const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              "메이트와 대화 중입니다.",
-              style: TextStyle(fontSize: 13, color: Colors.blue),
-            ),
-          ),
-          TextButton(
-            onPressed: () {},
-            child: const Text(
-              "일정확인",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
+          Text(text, style: const TextStyle(fontSize: 13, color: Colors.blue)),
         ],
       ),
     );

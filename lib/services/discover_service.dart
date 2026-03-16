@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:localmate/services/chat_service.dart';
 
 class DiscoverService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -85,6 +86,48 @@ class DiscoverService {
       );
     } catch (e) {
       return [];
+    }
+  }
+
+  Future<String?> acceptOffer({
+    required String requestId,
+    required String offerId,
+    required String guideId,
+  }) async {
+    try {
+      final myId = _supabase.auth.currentUser?.id;
+      if (myId == null) return null;
+
+      // 1. 공고 상태를 'matched'로 변경 (이제 '찾기' 리스트에서 안 보임)
+      await _supabase
+          .from('travel_requests')
+          .update({'status': 'matched'})
+          .eq('id', requestId);
+
+      // 2. 해당 제안 상태를 'accepted'로 변경
+      await _supabase
+          .from('offers')
+          .update({'status': 'accepted'})
+          .eq('id', offerId);
+
+      // 3. (선택사항) 나머지 제안들은 자동으로 거절 처리
+      await _supabase
+          .from('offers')
+          .update({'status': 'rejected'})
+          .eq('request_id', requestId)
+          .neq('id', offerId);
+
+      // 4. 채팅방 ID 가져오기 (이미 있으면 기존 ID, 없으면 생성)
+      final roomId = await ChatService().getOrCreateRoom(
+        myId,
+        guideId,
+        requestId: requestId, // 💡 요렇게 이름을 써서(named parameter) 보내주세요!
+      );
+
+      return roomId;
+    } catch (e) {
+      debugPrint("❌ 수락 처리 중 에러 발생: $e");
+      return null;
     }
   }
 
@@ -209,15 +252,24 @@ class DiscoverService {
   }
 
   /// 📩 [여행자 전용] 특정 공고에 들어온 가이드 제안 목록 가져오기
+  /// 📩 [여행자 전용] 특정 공고에 들어온 가이드 제안 목록
   Future<List<Map<String, dynamic>>> fetchOffersForRequest(
     String requestId,
   ) async {
     try {
       final data = await _supabase
           .from('offers')
-          .select(
-            '*, users:guide_id(nickname, profile_image, age, nationality)',
-          ) // 가이드 정보 조인
+          .select('''
+            *,
+            users:guide_id(
+              id, 
+              nickname, 
+              profile_image, 
+              age, 
+              nationality,
+              guides(*)
+            )
+          ''')
           .eq('request_id', requestId)
           .order('created_at', ascending: false);
 
