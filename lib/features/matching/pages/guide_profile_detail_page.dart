@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:localmate/core/utils/travel_utils.dart';
 
 class GuideProfileDetailPage extends StatefulWidget {
   final Map<String, dynamic> guideData;
@@ -50,7 +51,7 @@ class _GuideProfileDetailPageState extends State<GuideProfileDetailPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "${widget.guideData['nationality']} • ${widget.guideData['age']}세",
+                      "${TravelUtils.formatNationality(widget.guideData['nationality'])} • ${widget.guideData['age']}세",
                       style: const TextStyle(color: Colors.grey, fontSize: 16),
                     ),
 

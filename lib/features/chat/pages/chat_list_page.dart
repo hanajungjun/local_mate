@@ -62,6 +62,21 @@ class _ChatListPageState extends State<ChatListPage> {
     }
   }
 
+  /// ✅ guides 테이블에 row 있으면 가이드 — last_mode와 무관하게 확실한 판별
+  Future<bool> _isGuide(String userId) async {
+    try {
+      final res = await _supabase
+          .from('guides')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
+      return res != null;
+    } catch (e) {
+      debugPrint("❌ 가이드 여부 확인 실패: $e");
+      return false;
+    }
+  }
+
   Future<void> _navigateToChat(
     String targetId,
     Map<String, dynamic> targetUser,
@@ -77,13 +92,17 @@ class _ChatListPageState extends State<ChatListPage> {
     try {
       final roomId = await _chatService.getOrCreateRoom(myId, targetId);
 
+      // ✅ 상대방이 가이드인지 확인
+      final targetIsGuide = await _isGuide(targetId);
+      final enrichedTargetUser = {...targetUser, 'is_guide': targetIsGuide};
+
       if (mounted) {
         Navigator.pop(context);
         await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) =>
-                ChatRoomPage(roomId: roomId, targetUser: targetUser),
+                ChatRoomPage(roomId: roomId, targetUser: enrichedTargetUser),
           ),
         );
         _loadInitialData();
@@ -94,9 +113,13 @@ class _ChatListPageState extends State<ChatListPage> {
     }
   }
 
-  // ✅ 채팅방 나가기
   Future<void> _leaveChatRoom(String roomId) async {
+    final myId = _supabase.auth.currentUser!.id;
     try {
+      await _supabase.rpc(
+        'update_room_presence',
+        params: {'room_id': roomId, 'user_id': myId, 'is_active': false},
+      );
       await _chatService.leaveChatRoom(roomId);
       if (mounted) {
         ScaffoldMessenger.of(
@@ -226,7 +249,6 @@ class _ChatListPageState extends State<ChatListPage> {
                     ? userData!['profile_image'][0]
                     : null;
 
-                // ✅ Dismissible로 감싸서 스와이프 삭제
                 return Dismissible(
                   key: Key(room['id']),
                   direction: DismissDirection.endToStart,

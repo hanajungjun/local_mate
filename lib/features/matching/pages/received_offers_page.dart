@@ -3,6 +3,7 @@ import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/discover_service.dart';
 import 'package:localmate/services/matching_service.dart';
 import 'package:localmate/features/chat/pages/chat_room_page.dart';
+import 'package:localmate/core/utils/travel_utils.dart';
 import 'guide_profile_detail_page.dart';
 
 class ReceivedOffersPage extends StatefulWidget {
@@ -34,19 +35,6 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
     setState(() {
       _offersFuture = _discoverService.fetchOffersForRequest(widget.requestId);
     });
-  }
-
-  // ✅ 국적 코드를 한글로 바꿔주는 헬퍼 (함수 밖에 두거나 안에 두셔도 됩니다)
-  String _getCountryName(String? code) {
-    final Map<String, String> countryMap = {
-      'KR': '대한민국 🇰🇷',
-      'US': '미국 🇺🇸',
-      'JP': '일본 🇯🇵',
-      'CN': '중국 🇨🇳',
-      'VN': '베트남 🇻🇳',
-      'TH': '태국 🇹🇭',
-    };
-    return countryMap[code?.toUpperCase()] ?? code ?? '정보 없음';
   }
 
   @override
@@ -105,6 +93,7 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
   Widget _buildOfferCard(Map<String, dynamic> offer) {
     final guide = offer['users'] as Map<String, dynamic>?;
     final nickname = guide?['nickname'] ?? '알 수 없는 가이드';
+
     final List<dynamic> profileImages =
         guide?['profile_image'] as List<dynamic>? ?? [];
     final String profileUrl = profileImages.isNotEmpty
@@ -172,10 +161,10 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
                             ],
                           ),
                           Text(
-                            "${_getCountryName(guide?['nationality'])} • ${guide?['age'] ?? '??'}세",
+                            "${TravelUtils.formatNationality(guide?['nationality'])} • ${guide?['age'] ?? '??'}세",
                             style: const TextStyle(
                               color: Colors.grey,
-                              fontSize: 13,
+                              fontSize: 14, // 가독성을 위해 살짝 조정
                             ),
                           ),
                         ],

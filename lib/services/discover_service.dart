@@ -91,42 +91,65 @@ class DiscoverService {
 
   Future<String?> acceptOffer({
     required String requestId,
-    required String offerId,
     required String guideId,
+    required String offerId,
   }) async {
     try {
-      final myId = _supabase.auth.currentUser?.id;
-      if (myId == null) return null;
+      final myId = _supabase.auth.currentUser!.id;
 
-      // 1. 공고 상태를 'matched'로 변경 (이제 '찾기' 리스트에서 안 보임)
-      await _supabase
-          .from('travel_requests')
-          .update({'status': 'matched'})
-          .eq('id', requestId);
+      // 1. 기존 방이 있는지 확인 (A-B 혹은 B-A 관계 모두 체크)
+      final existingRoom = await _supabase
+          .from('chat_rooms')
+          .select('id')
+          .or(
+            'and(participant_a.eq.$myId,participant_b.eq.$guideId),and(participant_a.eq.$guideId,participant_b.eq.$myId)',
+          )
+          .maybeSingle();
 
-      // 2. 해당 제안 상태를 'accepted'로 변경
+      String roomId;
+
+      if (existingRoom != null) {
+        // ✅ [수정] 기존 방이 있다면: request_id 업데이트 및 left_users 초기화
+        roomId = existingRoom['id'];
+        await _supabase
+            .from('chat_rooms')
+            .update({
+              'request_id': requestId,
+              'left_users': [], // 👈 여기서 빈 배열로 밀어버려야 화면에 다시 뜹니다!
+              'last_message': '새로운 여행 매칭이 수락되었습니다.',
+              'last_message_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', roomId);
+
+        debugPrint("♻️ 기존 채팅방을 재사용하고 복구했습니다: $roomId");
+      } else {
+        // ✅ [수정] 방이 없다면: 신규 생성 시에도 left_users를 빈 배열로 명시
+        final newRoom = await _supabase
+            .from('chat_rooms')
+            .insert({
+              'participant_a': myId,
+              'participant_b': guideId,
+              'request_id': requestId,
+              'left_users': [], // 👈 초기 생성 시에도 확실히 빈 배열로 설정
+              'last_message': '매칭이 완료되었습니다!',
+              'last_message_at': DateTime.now().toIso8601String(),
+            })
+            .select()
+            .single();
+
+        roomId = newRoom['id'];
+        debugPrint("🆕 새 채팅방이 생성되었습니다: $roomId");
+      }
+
+      // 2. 제안 상태 변경 (성공 시)
       await _supabase
           .from('offers')
           .update({'status': 'accepted'})
           .eq('id', offerId);
 
-      // 3. (선택사항) 나머지 제안들은 자동으로 거절 처리
-      await _supabase
-          .from('offers')
-          .update({'status': 'rejected'})
-          .eq('request_id', requestId)
-          .neq('id', offerId);
-
-      // 4. 채팅방 ID 가져오기 (이미 있으면 기존 ID, 없으면 생성)
-      final roomId = await ChatService().getOrCreateRoom(
-        myId,
-        guideId,
-        requestId: requestId, // 💡 요렇게 이름을 써서(named parameter) 보내주세요!
-      );
-
       return roomId;
     } catch (e) {
-      debugPrint("❌ 수락 처리 중 에러 발생: $e");
+      debugPrint("❌ 수락 처리 실패: $e");
       return null;
     }
   }

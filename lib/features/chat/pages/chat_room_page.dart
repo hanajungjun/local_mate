@@ -21,69 +21,36 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   final TextEditingController _controller = TextEditingController();
   final ChatService _chatService = ChatService();
   final supabase = Supabase.instance.client;
-  late final Stream<List<Map<String, dynamic>>> _messageStream;
 
-  bool _isPartnerLeft = false; // ✅ 상대방 나갔는지 여부
+  late final Stream<List<Map<String, dynamic>>> _messageStream;
+  late final Stream<List<Map<String, dynamic>>> _roomStream;
+
+  bool _isPartnerLeft = false;
+
+  // ✅ 상대방이 가이드면 내가 여행자, 상대방이 여행자면 내가 가이드
+  bool get _isTraveler => widget.targetUser['is_guide'] == true;
 
   @override
   void initState() {
     super.initState();
     _messageStream = _chatService.getMessageStream(widget.roomId);
+
+    _roomStream = supabase
+        .from('chat_rooms')
+        .stream(primaryKey: ['id'])
+        .eq('id', widget.roomId)
+        .handleError((error) {
+          debugPrint("📡 Realtime Stream Error: $error");
+        });
+
     _updatePresence(true);
-    _checkPartnerStatus(); // ✅ 진입 시 상태 확인
   }
 
   @override
   void dispose() {
-    _updatePresence(false);
     _handleTyping("");
     _controller.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectDateTime(String offerId) async {
-    DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-
-    if (pickedDate == null) return;
-
-    TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-
-    if (pickedTime == null) return;
-
-    // 💡 선택된 날짜와 시간을 가공 (예: "2026-03-20 14:00")
-    final String finalDateTime =
-        "${pickedDate.toString().split(' ')[0]} ${pickedTime.format(context)}";
-
-    // DB 업데이트
-    await supabase
-        .from('offers')
-        .update({
-          'status': 'request_confirm',
-          'confirmed_at': finalDateTime, // DB에 컬럼 추가 필요!
-        })
-        .eq('id', offerId);
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text("📅 $finalDateTime 투어 확정을 요청했습니다.")));
-  }
-
-  // ✅ 상대방이 나갔는지 확인
-  Future<void> _checkPartnerStatus() async {
-    try {
-      final left = await _chatService.isPartnerLeft(widget.roomId);
-      if (mounted) setState(() => _isPartnerLeft = left);
-    } catch (e) {
-      debugPrint("❌ 상대방 상태 확인 실패: $e");
-    }
   }
 
   Future<void> _updatePresence(bool isActive) async {
@@ -118,72 +85,140 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     }
   }
 
-  // 🔘 상단 바 버튼 클릭 시 실행될 실제 로직
-  void _handleTourAction(
-    String status,
-    bool isTraveler,
-    String? offerId,
-  ) async {
-    if (offerId == null) return;
+  String _formatTime24(TimeOfDay time) {
+    final h = time.hour.toString().padLeft(2, '0');
+    final m = time.minute.toString().padLeft(2, '0');
+    return "$h:$m";
+  }
 
-    if (!isTraveler) {
-      // 🙋‍♂️ 가이드: 날짜와 시간을 선택합니다.
-      DateTime? pickedDate = await showDatePicker(
-        context: context,
-        initialDate: DateTime.now(),
-        firstDate: DateTime.now(),
-        lastDate: DateTime.now().add(const Duration(days: 365)),
-        helpText: "투어 날짜를 선택하세요",
+  // ────────────────────────────────────────
+  // 🙋‍♂️ 가이드: 날짜/시간 선택 → chat_rooms 업데이트
+  // ────────────────────────────────────────
+  Future<void> _guideSelectDateTime() async {
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      helpText: "투어 날짜를 선택하세요",
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      helpText: "시작 시간을 선택하세요",
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final dateStr = pickedDate.toString().split(' ')[0]; // yyyy-MM-dd
+    final timeStr = _formatTime24(pickedTime); // HH:mm
+
+    await supabase
+        .from('chat_rooms')
+        .update({
+          'meeting_date': dateStr,
+          'meeting_time': timeStr,
+          'schedule_status': 'request_confirm',
+        })
+        .eq('id', widget.roomId);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("📅 $dateStr $timeStr 투어 확정을 요청했습니다.")),
       );
+    }
+  }
 
-      if (pickedDate == null) return;
+  // ────────────────────────────────────────
+  // 🙋‍♀️ 여행자: 최종 확정 → guide_schedules + user_schedules INSERT
+  // ────────────────────────────────────────
+  Future<void> _travelerConfirm(Map<String, dynamic> roomData) async {
+    final myId = supabase.auth.currentUser!.id;
+    final guideId = widget.targetUser['id'] as String?;
+    final mDate = roomData['meeting_date'] as String?;
+    final mTime = roomData['meeting_time'] as String?;
 
-      TimeOfDay? pickedTime = await showTimePicker(
-        context: context,
-        initialTime: TimeOfDay.now(),
-        helpText: "시작 시간을 선택하세요",
-      );
+    if (guideId == null || mDate == null || mTime == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("❌ 일정 정보가 부족합니다.")));
+      }
+      return;
+    }
 
-      if (pickedTime == null) return;
+    final tripDateStr = "$mDate $mTime:00+00";
 
-      final dateStr = pickedDate.toString().split(' ')[0]; // yyyy-mm-dd
-      final timeStr = pickedTime.format(context); // hh:mm AM/PM
+    // 제목: request_id 있으면 travel_requests에서, 없으면 기본값
+    String tripTitle = '${widget.targetUser['nickname']}와의 투어';
+    final requestId = roomData['request_id'] as String?;
+    if (requestId != null) {
+      final req = await supabase
+          .from('travel_requests')
+          .select('title')
+          .eq('id', requestId)
+          .maybeSingle();
+      tripTitle = req?['title'] as String? ?? tripTitle;
+    }
 
+    try {
+      // ① chat_rooms → confirmed
       await supabase
-          .from('offers')
-          .update({
-            'status': 'request_confirm',
-            'meeting_date': dateStr,
-            'meeting_time': timeStr,
-          })
-          .eq('id', offerId);
-    } else {
-      // 🙋‍♀️ 여행자: 최종 확정 도장 찍기
-      await supabase
-          .from('offers')
-          .update({'status': 'confirmed'})
-          .eq('id', offerId);
-      final requestId = widget.targetUser['request_id'];
+          .from('chat_rooms')
+          .update({'schedule_status': 'confirmed'})
+          .eq('id', widget.roomId);
+
+      // ② travel_requests → confirmed (request_id 있을 때만)
       if (requestId != null) {
         await supabase
             .from('travel_requests')
             .update({'status': 'confirmed'})
             .eq('id', requestId);
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("🎉 투어가 최종 확정되었습니다!")));
+
+      // ③ guide_schedules → INSERT
+      await supabase.from('guide_schedules').insert({
+        'guide_id': guideId,
+        'title': tripTitle,
+        'trip_date': tripDateStr,
+        'location': widget.targetUser['location_name'],
+        'max_people': 1,
+        'current_people': 1,
+        'status': 'booked',
+      });
+
+      // ④ user_schedules → INSERT
+      await supabase.from('user_schedules').insert({
+        'user_id': myId,
+        'guide_id': guideId,
+        'title': tripTitle,
+        'partner_name': widget.targetUser['nickname'],
+        'trip_date': tripDateStr,
+        'status': 'confirmed',
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("🎉 투어가 최종 확정되었습니다!")));
+      }
+    } catch (e) {
+      debugPrint("❌ 확정 처리 실패: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("❌ 확정 중 오류: $e")));
+      }
     }
   }
 
   void _onSend() async {
-    if (_isPartnerLeft) return; // ✅ 상대방 나간 경우 전송 차단
+    if (_isPartnerLeft) return;
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-
     _controller.clear();
     _handleTyping("");
-
     await _chatService.sendMessage(
       widget.roomId,
       supabase.auth.currentUser!.id,
@@ -212,41 +247,176 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         elevation: 0.5,
         centerTitle: true,
       ),
-      body: Column(
-        children: [
-          _buildInfoBar(),
-          _buildTypingIndicator(),
-          Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _messageStream,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData)
-                  return const Center(child: CircularProgressIndicator());
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _roomStream,
+        builder: (context, roomSnapshot) {
+          List<String> typingUsers = [];
+          Map<String, dynamic> roomData = {};
 
-                final messages = snapshot.data!;
-                return ListView.builder(
-                  reverse: true,
-                  padding: const EdgeInsets.all(20),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final msg = messages[index];
-                    final bool isMe =
-                        msg['sender_id'] == supabase.auth.currentUser!.id;
-                    return _buildMessageBubble(
-                      isMe: isMe,
-                      text: msg['content'] ?? '',
-                      type: msg['message_type'],
-                      imageUrl: msg['image_url'],
+          if (roomSnapshot.hasData && roomSnapshot.data!.isNotEmpty) {
+            roomData = roomSnapshot.data!.first;
+
+            // 퇴장 감지
+            final activeUsers = List<String>.from(
+              roomData['active_users'] ?? [],
+            );
+            final targetId = widget.targetUser['id'] as String?;
+            final partnerLeft =
+                targetId != null && !activeUsers.contains(targetId);
+
+            if (partnerLeft != _isPartnerLeft) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() => _isPartnerLeft = partnerLeft);
+              });
+            }
+
+            typingUsers = List<String>.from(roomData['typing_users'] ?? []);
+          }
+
+          return Column(
+            children: [
+              _buildInfoBar(roomData),
+              _buildTypingIndicator(typingUsers),
+              Expanded(
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _messageStream,
+                  builder: (context, msgSnapshot) {
+                    if (!msgSnapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final messages = msgSnapshot.data!;
+                    return ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.all(20),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = messages[index];
+                        return _buildMessageBubble(
+                          isMe:
+                              msg['sender_id'] == supabase.auth.currentUser!.id,
+                          text: msg['content'] ?? '',
+                          type: msg['message_type'],
+                          imageUrl: msg['image_url'],
+                        );
+                      },
                     );
                   },
-                );
-              },
+                ),
+              ),
+              _buildInputArea(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildInfoBar(Map<String, dynamic> roomData) {
+    final scheduleStatus = roomData['schedule_status'] as String? ?? 'none';
+    final String? mDate = roomData['meeting_date'];
+    final String? mTime = roomData['meeting_time'];
+
+    String message;
+    String? btnText;
+    Color barColor;
+    Color iconColor;
+
+    switch (scheduleStatus) {
+      case 'request_confirm':
+        if (_isTraveler) {
+          message = "📅 $mDate $mTime 투어 요청!";
+          btnText = "최종 확정";
+        } else {
+          message = "승인을 기다리는 중입니다...";
+          btnText = "수정하기";
+        }
+        barColor = Colors.orange.shade50;
+        iconColor = Colors.orange;
+        break;
+
+      case 'confirmed':
+        message = "✅ 확정 완료! ($mDate $mTime) 🎉";
+        barColor = Colors.green.shade50;
+        iconColor = Colors.green;
+        break;
+
+      default: // none
+        message = _isTraveler ? "가이드의 일정 제안을 기다리는 중입니다." : "투어 일정을 제안해 보세요.";
+        btnText = _isTraveler ? null : "일정 제안";
+        barColor = Colors.blue.shade50;
+        iconColor = Colors.blue;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      color: barColor,
+      child: Row(
+        children: [
+          Icon(Icons.event, size: 18, color: iconColor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
             ),
           ),
-          _buildInputArea(), // ✅ 상대방 나간 경우 내부에서 분기
+          if (btnText != null)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: iconColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                textStyle: const TextStyle(fontSize: 12),
+              ),
+              onPressed: () {
+                if (!_isTraveler) {
+                  // 가이드: 날짜 선택 (none → request_confirm, 수정하기도 동일)
+                  _guideSelectDateTime();
+                } else if (_isTraveler && scheduleStatus == 'request_confirm') {
+                  // 여행자: 최종 확정
+                  _travelerConfirm(roomData);
+                }
+              },
+              child: Text(btnText),
+            ),
         ],
       ),
     );
+  }
+
+  Widget _buildTypingIndicator(List<String> typingUsers) {
+    final targetId = widget.targetUser['id'];
+    if (typingUsers.contains(targetId)) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "${widget.targetUser['nickname']}님이 입력 중입니다...",
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _buildMessageBubble({
@@ -273,7 +443,11 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           ),
           boxShadow: [
             if (!isMe)
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
           ],
         ),
         child: type == 'image' && imageUrl != null
@@ -282,8 +456,11 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                 child: Image.network(
                   imageUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const Icon(Icons.broken_image, size: 50),
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.broken_image,
+                    size: 50,
+                    color: Colors.grey,
+                  ),
                 ),
               )
             : Text(
@@ -297,160 +474,6 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
-  Widget _buildTypingIndicator() {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase
-          .from('chat_rooms')
-          .stream(primaryKey: ['id'])
-          .eq('id', widget.roomId),
-      builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-          final roomData = snapshot.data!.first;
-          final typingUsers = List<String>.from(roomData['typing_users'] ?? []);
-          final targetId = widget.targetUser['id'];
-
-          if (typingUsers.contains(targetId)) {
-            return Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    "${widget.targetUser['nickname']}님이 입력 중입니다...",
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-        }
-        return const SizedBox.shrink();
-      },
-    );
-  }
-
-  Widget _buildInfoBar() {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: supabase
-          .from('offers')
-          .stream(primaryKey: ['id'])
-          .eq('request_id', widget.targetUser['request_id'] ?? ''),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return _buildInfoContainer("메이트와 대화 중입니다.", Colors.blue.shade50);
-        }
-
-        final offer = snapshot.data!.firstWhere(
-          (o) => o['guide_id'] == widget.targetUser['id'],
-          orElse: () => {},
-        );
-
-        if (offer.isEmpty) {
-          return _buildInfoContainer("메이트와 대화 중입니다.", Colors.blue.shade50);
-        }
-
-        final status = offer['status'] ?? 'matched';
-        final bool isTraveler = widget.targetUser['guide_bio'] == null;
-
-        // 💡 날짜/시간 데이터 가져오기 (DB 컬럼명: meeting_date, meeting_time 예정)
-        final String? mDate = offer['meeting_date'];
-        final String? mTime = offer['meeting_time'];
-
-        String message = "메이트와 일정을 합의해 주세요.";
-        String? btnText;
-        Color barColor = Colors.blue.shade50;
-
-        if (status == 'request_confirm') {
-          message = isTraveler ? "📅 $mDate $mTime 투어 요청!" : "승인을 기다리는 중입니다...";
-          btnText = isTraveler ? "최종 확정" : "수정하기"; // 가이드는 수정 가능
-          barColor = Colors.orange.shade50;
-        } else if (status == 'confirmed') {
-          message = "확정 완료! ($mDate $mTime) 🎉";
-          barColor = Colors.green.shade50;
-        } else {
-          if (!isTraveler) btnText = "확정 요청";
-        }
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          color: barColor,
-          child: Row(
-            children: [
-              Icon(
-                status == 'confirmed' ? Icons.check_circle : Icons.event,
-                size: 18,
-                color: status == 'confirmed' ? Colors.green : Colors.blue,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  message,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: status == 'confirmed'
-                        ? Colors.green.shade900
-                        : Colors.blue.shade900,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              if (btnText != null && !_isPartnerLeft)
-                ElevatedButton(
-                  onPressed: () => _handleTourAction(
-                    status,
-                    isTraveler,
-                    offer['id']?.toString(),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: btnText == "최종 확정"
-                        ? Colors.orange
-                        : AppColors.travelingBlue,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    minimumSize: const Size(60, 32),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    btnText,
-                    style: const TextStyle(fontSize: 11, color: Colors.white),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // 💡 중복 코드를 줄이기 위한 위젯 헬퍼
-  Widget _buildInfoContainer(String text, Color color) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      color: color,
-      child: Row(
-        children: [
-          const Icon(Icons.info_outline, size: 18, color: Colors.blue),
-          const SizedBox(width: 10),
-          Text(text, style: const TextStyle(fontSize: 13, color: Colors.blue)),
-        ],
-      ),
-    );
-  }
-
-  // ✅ 상대방 나간 경우 입력창 대신 안내 배너 표시
   Widget _buildInputArea() {
     if (_isPartnerLeft) {
       return Container(
@@ -475,7 +498,6 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       );
     }
 
-    // 기존 입력창
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: const BoxDecoration(

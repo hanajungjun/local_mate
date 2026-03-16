@@ -38,7 +38,6 @@ class ChatService {
             'participant_b': targetId,
             'request_id': requestId, // null이면 null로 들어감
             'last_message': '대화를 시작해보세요!',
-            'status': 'active',
           })
           .select()
           .single();
