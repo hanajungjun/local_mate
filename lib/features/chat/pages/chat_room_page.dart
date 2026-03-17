@@ -23,8 +23,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   final supabase = Supabase.instance.client;
 
   late final Stream<List<Map<String, dynamic>>> _messageStream;
-  late final Stream<List<Map<String, dynamic>>> _roomStream;
-
+  late Stream<List<Map<String, dynamic>>> _roomStream;
   bool _isPartnerLeft = false;
 
   // ✅ 상대방이 가이드면 내가 여행자, 상대방이 여행자면 내가 가이드
@@ -41,6 +40,20 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         .eq('id', widget.roomId)
         .handleError((error) {
           debugPrint("📡 Realtime Stream Error: $error");
+          // ✅ 타임아웃 시 3초 후 재연결
+          if (mounted) {
+            Future.delayed(const Duration(seconds: 3), () {
+              if (mounted) {
+                setState(() {
+                  _roomStream = supabase
+                      .from('chat_rooms')
+                      .stream(primaryKey: ['id'])
+                      .eq('id', widget.roomId)
+                      .handleError((e) => debugPrint("📡 재연결 실패: $e"));
+                });
+              }
+            });
+          }
         });
 
     _updatePresence(true);
@@ -150,8 +163,18 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     final tripDateStr = "$mDate $mTime:00+00";
 
-    // 제목: request_id 있으면 travel_requests에서, 없으면 기본값
-    String tripTitle = '${widget.targetUser['nickname']}와의 투어';
+    // ✅ 여행자 본인 닉네임 가져오기
+    final myProfile = await supabase
+        .from('users')
+        .select('nickname')
+        .eq('id', myId)
+        .maybeSingle();
+    final travelerName = myProfile?['nickname'] as String? ?? '여행자';
+    final guideName = widget.targetUser['nickname'] as String? ?? '가이드';
+
+    // request_id 있으면 travel_requests 제목 사용
+    String guideTitle = '$travelerName와의 투어'; // 가이드 스케줄용
+    String userTitle = '$guideName와의 투어'; // 여행자 스케줄용
     final requestId = roomData['request_id'] as String?;
     if (requestId != null) {
       final req = await supabase
@@ -159,7 +182,11 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           .select('title')
           .eq('id', requestId)
           .maybeSingle();
-      tripTitle = req?['title'] as String? ?? tripTitle;
+      final reqTitle = req?['title'] as String?;
+      if (reqTitle != null) {
+        guideTitle = reqTitle;
+        userTitle = reqTitle;
+      }
     }
 
     try {
@@ -177,10 +204,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
             .eq('id', requestId);
       }
 
-      // ③ guide_schedules → INSERT
+      // ③ guide_schedules → INSERT (여행자 이름으로)
       await supabase.from('guide_schedules').insert({
         'guide_id': guideId,
-        'title': tripTitle,
+        'title': guideTitle,
         'trip_date': tripDateStr,
         'location': widget.targetUser['location_name'],
         'max_people': 1,
@@ -188,12 +215,12 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         'status': 'booked',
       });
 
-      // ④ user_schedules → INSERT
+      // ④ user_schedules → INSERT (가이드 이름으로)
       await supabase.from('user_schedules').insert({
         'user_id': myId,
         'guide_id': guideId,
-        'title': tripTitle,
-        'partner_name': widget.targetUser['nickname'],
+        'title': userTitle,
+        'partner_name': guideName,
         'trip_date': tripDateStr,
         'status': 'confirmed',
       });

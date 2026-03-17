@@ -3,8 +3,9 @@ import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/features/matching/pages/guide_registration_page.dart';
 import 'package:localmate/services/schedule_service.dart';
 import 'package:localmate/services/profile_service.dart';
+import 'package:localmate/features/matching/pages/guide_detail_page.dart';
 import 'package:localmate/core/utils/date_utils.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'; // ✅ 추가
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class GuideMode extends StatefulWidget {
   final VoidCallback? onStartGuide;
@@ -272,15 +273,28 @@ class _GuideModeState extends State<GuideMode> {
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final item = schedules[index];
-            final DateTime tripDate = DateTime.parse(item['trip_date']);
-            final String formattedDate = DateUtilsHelper.formatScheduleDate(
-              tripDate,
-            );
-            return _buildVerticalScheduleCard(
-              formattedDate,
-              item['title'] ?? "제목 없음",
-              (item['current_people'] ?? 0) > 0 ? "예약됨" : "모집 중",
-              color,
+            final DateTime tripDate = DateTime.parse(
+              item['trip_date'],
+            ).toLocal();
+            final String formattedDate =
+                '${DateUtilsHelper.formatScheduleDate(tripDate)} '
+                '${tripDate.hour.toString().padLeft(2, '0')}:${tripDate.minute.toString().padLeft(2, '0')}';
+
+            // ✅ InkWell로 감싸서 탭 시 상세 페이지로 이동
+            return InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GuideDetailPage(scheduleData: item),
+                ),
+              ),
+              borderRadius: BorderRadius.circular(16),
+              child: _buildVerticalScheduleCard(
+                formattedDate,
+                item['title'] ?? "제목 없음",
+                (item['current_people'] ?? 0) > 0 ? "예약됨" : "모집 중",
+                color,
+              ),
             );
           },
         ),

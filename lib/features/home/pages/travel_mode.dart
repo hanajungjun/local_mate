@@ -237,12 +237,14 @@ class _TravelModeState extends State<TravelMode> {
 
             // ✅ user_schedules 컬럼 직접 사용 (조인 없음)
             final String tripDate = item['trip_date'] ?? '';
-            String formattedDate = tripDate;
+            String formattedDate = '날짜 미정';
             if (tripDate.isNotEmpty) {
               try {
-                formattedDate = DateUtilsHelper.formatScheduleDate(
-                  DateTime.parse(tripDate),
-                );
+                final dt = DateTime.parse(tripDate).toLocal();
+                final dateStr = DateUtilsHelper.formatScheduleDate(dt);
+                final timeStr =
+                    '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                formattedDate = '$dateStr $timeStr';
               } catch (_) {}
             }
 
@@ -254,7 +256,10 @@ class _TravelModeState extends State<TravelMode> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => TourDetailPage(tourData: item),
+                    builder: (_) => TourDetailPage(
+                      // ✅ .from()을 사용해 타입을 Map<String, dynamic>으로 강제 변환합니다.
+                      tourData: Map<String, dynamic>.from(item),
+                    ),
                   ),
                 );
               },

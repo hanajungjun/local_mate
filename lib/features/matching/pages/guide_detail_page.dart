@@ -5,78 +5,99 @@ import 'package:localmate/features/chat/pages/chat_room_page.dart';
 import 'package:localmate/services/chat_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class TourDetailPage extends StatefulWidget {
-  final dynamic tourData;
+class GuideDetailPage extends StatefulWidget {
+  final dynamic scheduleData;
 
-  const TourDetailPage({super.key, required this.tourData});
+  const GuideDetailPage({super.key, required this.scheduleData});
 
   @override
-  State<TourDetailPage> createState() => _TourDetailPageState();
+  State<GuideDetailPage> createState() => _GuideDetailPageState();
 }
 
-class _TourDetailPageState extends State<TourDetailPage> {
+class _GuideDetailPageState extends State<GuideDetailPage> {
   final supabase = Supabase.instance.client;
   final ChatService _chatService = ChatService();
   late TextEditingController _memoController;
   Timer? _debounceTimer;
-  // ✅ 가이드 프로필 정보
-  Map<String, dynamic>? _guideProfile;
+
+  Map<String, dynamic>? _travelerProfile;
   bool _isLoadingProfile = true;
 
   @override
   void initState() {
     super.initState();
-    _memoController = TextEditingController(text: ''); // 일단 빈값
-    _loadGuideProfile();
-    _loadLatestData(); // ✅ 추가
-  }
-
-  /// ✅ 최신 데이터 DB에서 직접 조회
-  Future<void> _loadLatestData() async {
-    try {
-      final res = await supabase
-          .from('user_schedules')
-          .select('user_memo')
-          .eq('id', widget.tourData['id'])
-          .maybeSingle();
-      if (mounted) {
-        _memoController.text = res?['user_memo']?.toString() ?? '';
-      }
-    } catch (e) {
-      debugPrint("❌ 메모 로드 실패: $e");
-      // 실패하면 기존 tourData 값으로 폴백
-      _memoController.text = widget.tourData['user_memo']?.toString() ?? '';
-    }
+    _memoController = TextEditingController(text: '');
+    _loadLatestData();
+    _loadTravelerProfile();
   }
 
   @override
   void dispose() {
-    _debounceTimer?.cancel(); // ✅ dispose에서 타이머 정리
+    _debounceTimer?.cancel();
     _memoController.dispose();
     super.dispose();
   }
 
-  /// ✅ guide_id로 users 테이블에서 프로필 가져오기
-  Future<void> _loadGuideProfile() async {
-    final guideId = widget.tourData['guide_id']?.toString();
-    if (guideId == null) {
-      setState(() => _isLoadingProfile = false);
-      return;
-    }
+  /// guide_schedules에서 최신 데이터 조회 (메모 포함)
+  Future<void> _loadLatestData() async {
     try {
       final res = await supabase
-          .from('users')
-          .select('id, nickname, profile_image')
-          .eq('id', guideId)
+          .from('guide_schedules')
+          .select('guide_memo')
+          .eq('id', widget.scheduleData['id'])
           .maybeSingle();
       if (mounted) {
+        _memoController.text = res?['guide_memo']?.toString() ?? '';
+      }
+    } catch (e) {
+      debugPrint("❌ 메모 로드 실패: $e");
+    }
+  }
+
+  /// user_schedules에서 여행자 찾기 → users 테이블로 프로필 조회
+  Future<void> _loadTravelerProfile() async {
+    try {
+      // guide_schedules의 trip_date + guide_id로 매칭된 user_schedules 찾기
+      final guideId = supabase.auth.currentUser?.id;
+      final tripDate = widget.scheduleData['trip_date']?.toString();
+
+      if (guideId == null || tripDate == null) {
+        setState(() => _isLoadingProfile = false);
+        return;
+      }
+
+      final userSchedule = await supabase
+          .from('user_schedules')
+          .select('user_id')
+          .eq('guide_id', guideId)
+          .eq('trip_date', tripDate)
+          .maybeSingle();
+
+      if (userSchedule == null) {
+        setState(() => _isLoadingProfile = false);
+        return;
+      }
+
+      final userId = userSchedule['user_id']?.toString();
+      if (userId == null) {
+        setState(() => _isLoadingProfile = false);
+        return;
+      }
+
+      final profile = await supabase
+          .from('users')
+          .select('id, nickname, profile_image')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (mounted) {
         setState(() {
-          _guideProfile = res;
+          _travelerProfile = profile;
           _isLoadingProfile = false;
         });
       }
     } catch (e) {
-      debugPrint("❌ 가이드 프로필 로드 실패: $e");
+      debugPrint("❌ 여행자 프로필 로드 실패: $e");
       if (mounted) setState(() => _isLoadingProfile = false);
     }
   }
@@ -86,22 +107,26 @@ class _TourDetailPageState extends State<TourDetailPage> {
     _debounceTimer = Timer(const Duration(seconds: 1), () async {
       try {
         await supabase
-            .from('user_schedules')
-            .update({'user_memo': text})
-            .eq('id', widget.tourData['id']);
-        debugPrint("✅ 메모 저장 완료");
+            .from('guide_schedules')
+            .update({'guide_memo': text})
+            .eq('id', widget.scheduleData['id']);
+        debugPrint("✅ 가이드 메모 저장 완료");
       } catch (e) {
         debugPrint("❌ 메모 저장 실패: $e");
       }
     });
   }
 
-  /// ✅ 채팅방 찾아서 이동
   Future<void> _goToChat() async {
     final myId = supabase.auth.currentUser?.id;
-    final guideId = widget.tourData['guide_id']?.toString();
+    final travelerId = _travelerProfile?['id']?.toString();
 
-    if (myId == null || guideId == null) return;
+    if (myId == null || travelerId == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("❌ 여행자 정보를 찾을 수 없습니다.")));
+      return;
+    }
 
     showDialog(
       context: context,
@@ -110,20 +135,20 @@ class _TourDetailPageState extends State<TourDetailPage> {
     );
 
     try {
-      final roomId = await _chatService.getOrCreateRoom(myId, guideId);
+      final roomId = await _chatService.getOrCreateRoom(myId, travelerId);
 
       if (mounted) {
-        Navigator.pop(context); // 로딩 닫기
+        Navigator.pop(context);
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => ChatRoomPage(
               roomId: roomId,
               targetUser: {
-                'id': guideId,
-                'nickname': _guideProfile?['nickname'] ?? '가이드',
-                'profile_image': _guideProfile?['profile_image'],
-                'is_guide': true, // 상대방이 가이드
+                'id': travelerId,
+                'nickname': _travelerProfile?['nickname'] ?? '여행자',
+                'profile_image': _travelerProfile?['profile_image'],
+                'is_guide': false, // 상대방이 여행자
               },
             ),
           ),
@@ -136,7 +161,7 @@ class _TourDetailPageState extends State<TourDetailPage> {
   }
 
   Map<String, String> _parseTripDate() {
-    final tripDate = widget.tourData['trip_date']?.toString() ?? '';
+    final tripDate = widget.scheduleData['trip_date']?.toString() ?? '';
     if (tripDate.isEmpty) return {'date': '날짜 미정', 'time': '시간 미정'};
     try {
       final dt = DateTime.parse(tripDate).toLocal();
@@ -152,14 +177,15 @@ class _TourDetailPageState extends State<TourDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final String title = widget.tourData['title']?.toString() ?? '투어';
+    final String title = widget.scheduleData['title']?.toString() ?? '투어';
+    final String location = widget.scheduleData['location']?.toString() ?? '';
     final parsed = _parseTripDate();
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
-          "확정된 투어 정보",
+          "가이드 일정 상세",
           style: TextStyle(
             color: Colors.black,
             fontSize: 16,
@@ -178,10 +204,10 @@ class _TourDetailPageState extends State<TourDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ✅ 프로필 헤더 — 로딩 중이면 스켈레톤
+            // 여행자 헤더
             _isLoadingProfile
                 ? _buildProfileSkeleton()
-                : _buildGuideHeader(_guideProfile),
+                : _buildTravelerHeader(_travelerProfile),
             const SizedBox(height: 30),
 
             // 투어 제목
@@ -198,7 +224,7 @@ class _TourDetailPageState extends State<TourDetailPage> {
               title,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
 
             // 투어 일정
             const Text(
@@ -214,7 +240,7 @@ class _TourDetailPageState extends State<TourDetailPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.travelingBlue.withOpacity(0.05),
+                color: AppColors.travelingPurple.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(15),
               ),
               child: Column(
@@ -225,7 +251,7 @@ class _TourDetailPageState extends State<TourDetailPage> {
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.travelingBlue,
+                      color: AppColors.travelingPurple,
                     ),
                   ),
                   if (parsed['time']!.isNotEmpty)
@@ -239,15 +265,41 @@ class _TourDetailPageState extends State<TourDetailPage> {
                 ],
               ),
             ),
+
+            // 장소
+            if (location.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Text(
+                "장소",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.location_on,
+                    color: AppColors.travelingPurple,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(location, style: const TextStyle(fontSize: 16)),
+                ],
+              ),
+            ],
+
             const Divider(height: 60),
 
-            // 나만의 투어 메모
+            // 가이드 메모
             Row(
               children: [
                 const Icon(Icons.edit_note, color: Colors.orange),
                 const SizedBox(width: 5),
                 const Text(
-                  "나만의 투어 메모",
+                  "투어 준비 메모",
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
@@ -258,7 +310,7 @@ class _TourDetailPageState extends State<TourDetailPage> {
               maxLines: 5,
               onChanged: _saveMemo,
               decoration: InputDecoration(
-                hintText: "준비물이나 가이드님께 물어볼 내용을 적어보세요.",
+                hintText: "준비물이나 투어 관련 메모를 적어보세요.",
                 filled: true,
                 fillColor: Colors.grey.shade50,
                 border: OutlineInputBorder(
@@ -269,20 +321,21 @@ class _TourDetailPageState extends State<TourDetailPage> {
             ),
             const SizedBox(height: 40),
 
-            // ✅ 채팅하기 버튼
+            // 여행자와 채팅하기
             SizedBox(
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: _goToChat,
+                onPressed: _travelerProfile != null ? _goToChat : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.travelingBlue,
+                  backgroundColor: AppColors.travelingPurple,
+                  disabledBackgroundColor: Colors.grey.shade300,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(15),
                   ),
                 ),
                 child: const Text(
-                  "가이드와 채팅하기",
+                  "여행자와 채팅하기",
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -297,9 +350,9 @@ class _TourDetailPageState extends State<TourDetailPage> {
     );
   }
 
-  Widget _buildGuideHeader(Map<String, dynamic>? guide) {
-    final nickname = guide?['nickname']?.toString() ?? '로컬 메이트';
-    final profileImages = guide?['profile_image'];
+  Widget _buildTravelerHeader(Map<String, dynamic>? traveler) {
+    final nickname = traveler?['nickname']?.toString() ?? '여행자';
+    final profileImages = traveler?['profile_image'];
     String? profileUrl;
     if (profileImages is List && profileImages.isNotEmpty) {
       profileUrl = profileImages[0]?.toString();
@@ -311,10 +364,14 @@ class _TourDetailPageState extends State<TourDetailPage> {
       children: [
         CircleAvatar(
           radius: 30,
-          backgroundColor: Colors.blueAccent,
+          backgroundColor: AppColors.travelingPurple.withOpacity(0.2),
           backgroundImage: profileUrl != null ? NetworkImage(profileUrl) : null,
           child: profileUrl == null
-              ? const Icon(Icons.person, color: Colors.white, size: 28)
+              ? const Icon(
+                  Icons.person,
+                  color: AppColors.travelingPurple,
+                  size: 28,
+                )
               : null,
         ),
         const SizedBox(width: 15),
@@ -322,11 +379,11 @@ class _TourDetailPageState extends State<TourDetailPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "$nickname 메이트",
+              "$nickname 님",
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const Text(
-              "현지 전문 가이드",
+              "여행자",
               style: TextStyle(color: Colors.grey, fontSize: 14),
             ),
           ],
