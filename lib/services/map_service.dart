@@ -11,17 +11,15 @@ class MapService {
     double radiusDegrees = 0.1,
   }) async {
     try {
-      final data = await _supabase
-          .from('guides')
-          .select('*, users!inner(*)')
-          .not('latitude', 'is', null)
-          .gte('latitude', lat - radiusDegrees)
-          .lte('latitude', lat + radiusDegrees)
-          .gte('longitude', lng - radiusDegrees)
-          .lte('longitude', lng + radiusDegrees)
-          .order('ad_level', ascending: false);
-
-      return List<Map<String, dynamic>>.from(data);
+      final result = await _supabase.rpc(
+        'get_nearby_guides',
+        params: {
+          'center_lat': lat,
+          'center_lng': lng,
+          'radius_degrees': radiusDegrees,
+        },
+      );
+      return List<Map<String, dynamic>>.from(result as List);
     } catch (e) {
       print("❌ 근처 가이드 로드 실패: $e");
       return [];

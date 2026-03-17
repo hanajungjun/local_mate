@@ -13,21 +13,20 @@ import 'package:localmate/features/mypage/profile/profile_edit_page.dart';
 import 'package:localmate/features/matching/pages/request_create_page.dart';
 import 'package:localmate/features/matching/pages/guide_matching_list_page.dart';
 
-// ✅ 1. 외부에서 AppShell의 상태를 조절할 수 있도록 전역 키를 선언합니다.
 final GlobalKey<AppShellState> appShellKey = GlobalKey<AppShellState>();
 
 class AppShell extends StatefulWidget {
-  // ✅ 2. 생성자에서 이 키를 고정으로 사용하도록 설정합니다.
-  const AppShell({super.key}); // 부모의 key를 그대로 사용하도록 둡니다.
+  const AppShell({super.key});
 
   @override
-  State<AppShell> createState() => AppShellState(); // ✅ 언더바(_) 제거하여 공개
+  State<AppShell> createState() => AppShellState();
 }
 
-// ✅ 3. 클래스 이름 앞의 언더바(_)를 제거하여 외부에서 'AppShellState' 타입을 인식하게 합니다.
 class AppShellState extends State<AppShell> {
   int _currentIndex = 0;
   int _chatInitialTab = 0;
+  bool _isTraveler = true; // ✅ 모드 상태 추가
+
   final _loginService = LoginService();
   final GlobalKey<DiscoverPageState> _discoverKey =
       GlobalKey<DiscoverPageState>();
@@ -40,12 +39,10 @@ class AppShellState extends State<AppShell> {
     });
   }
 
-  // ✅ 4. 외부에서 호출할 탭 변경 함수를 만듭니다.
   void goToTab(int index, {int chatTab = 0}) {
-    debugPrint("🔄 AppShell: 탭 이동 시도 -> $index번 탭, 채팅서브탭: $chatTab");
     setState(() {
       _currentIndex = index;
-      _chatInitialTab = chatTab; // 좋아요 푸시면 1이 들어옴
+      _chatInitialTab = chatTab;
     });
   }
 
@@ -84,7 +81,8 @@ class AppShellState extends State<AppShell> {
       HomePage(
         onGoToTravel: () => _onTabSelected(2),
         onModeChanged: (isTraveler) {
-          debugPrint("🔔 홈에서 모드 변경 감지: DiscoverPage 새로고침 시작");
+          debugPrint("🔔 모드 변경: ${isTraveler ? '여행자' : '가이드'}");
+          setState(() => _isTraveler = isTraveler); // ✅ 모드 업데이트
           _discoverKey.currentState?.refreshData();
         },
         onStartRequest: () {
@@ -104,7 +102,7 @@ class AppShellState extends State<AppShell> {
       ),
       const MapViewPage(),
       DiscoverPage(key: _discoverKey),
-      ChatMainPage(initialTabIndex: _chatInitialTab), // ✅ 변수 전달!
+      ChatMainPage(initialTabIndex: _chatInitialTab),
       const MyProfilePage(),
     ];
 
