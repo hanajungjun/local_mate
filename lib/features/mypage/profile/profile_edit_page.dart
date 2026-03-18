@@ -40,7 +40,8 @@ class _ProfileEditPageState extends State<ProfileEditPage>
   final _guideBioController = TextEditingController();
   List<String> _selectedSpecialties = [];
   Map<String, int> _selectedLanguageLevels = {};
-
+  double? _latitude;
+  double? _longitude;
   @override
   void initState() {
     super.initState();
@@ -85,6 +86,8 @@ class _ProfileEditPageState extends State<ProfileEditPage>
               g['language_levels'] ?? {},
             );
             _selectedLocations = List<String>.from(g['location_names'] ?? []);
+            _latitude = g['latitude'];
+            _longitude = g['longitude'];
           }
         });
       }
@@ -148,6 +151,8 @@ class _ProfileEditPageState extends State<ProfileEditPage>
         residencePeriod: _residenceController.text,
         specialties: _selectedSpecialties,
         languageLevels: _selectedLanguageLevels,
+        latitude: _latitude,
+        longitude: _longitude,
       );
 
       if (!mounted) return;
@@ -219,6 +224,10 @@ class _ProfileEditPageState extends State<ProfileEditPage>
                   selectedSpecialties: _selectedSpecialties,
                   selectedLanguageLevels: _selectedLanguageLevels,
                   onChanged: () => setState(() {}),
+                  onLocationCaptured: (lat, lng) {
+                    _latitude = lat;
+                    _longitude = lng;
+                  },
                 ),
               ],
             ),

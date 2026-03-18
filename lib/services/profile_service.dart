@@ -112,6 +112,8 @@ class ProfileService {
     String? residencePeriod,
     List<String>? specialties,
     Map<String, int>? languageLevels,
+    double? latitude,
+    double? longitude,
   }) async {
     final user = _supabase.auth.currentUser;
     if (user == null) throw Exception("세션이 만료되었습니다.");
@@ -170,6 +172,8 @@ class ProfileService {
       'residence_period': residencePeriod ?? '',
       'specialties': specialties ?? [],
       'language_levels': languageLevels ?? {},
+      'latitude': latitude, // ✨ 추가된 위도
+      'longitude': longitude, // ✨ 추가된 경도
       'updated_at': DateTime.now().toIso8601String(),
     });
   }

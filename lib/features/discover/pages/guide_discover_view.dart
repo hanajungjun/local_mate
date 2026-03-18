@@ -33,20 +33,40 @@ class GuideDiscoverView extends StatelessWidget {
   Widget _buildRequestCard(BuildContext context, Map<String, dynamic> req) {
     final writer = req['users'] as Map<String, dynamic>?;
 
-    // ✅ [수정] 서비스에서 가져온 offers 리스트에서 rejected가 아닌 것만 카운트!
+    // 1. 제안 개수 및 내 지원 여부 확인
     final List<dynamic> offersData = req['offers'] as List<dynamic>? ?? [];
     final int offerCount = offersData
         .where((o) => o['status'] != 'rejected')
         .length;
 
+    // ✅ 서비스(DiscoverService)에서 가공해서 넘겨준 is_applied 사용
+    final bool isApplied = req['is_applied'] ?? false;
     final bool isFull = offerCount >= 5;
 
-    // ✅ 2. 프로필 이미지 URL 추출 로직 (안전하게)
+    // 2. 작성자 프로필 이미지 처리
     final List<dynamic> profileImages =
         writer?['profile_image'] as List<dynamic>? ?? [];
     final String? profileUrl = profileImages.isNotEmpty
         ? profileImages[0].toString()
         : null;
+
+    // 3. 날짜 및 시간 파싱 (travel_at 대응)
+    final String travelAtRaw = req['travel_at'] ?? '';
+    String displayDate = '날짜 미정';
+    String displayTime = '';
+
+    if (travelAtRaw.isNotEmpty) {
+      try {
+        DateTime dt = DateTime.parse(travelAtRaw).toLocal();
+        final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+        displayDate =
+            "${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')} (${weekdays[dt.weekday - 1]})";
+        displayTime =
+            "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+      } catch (e) {
+        displayDate = '날짜 형식 오류';
+      }
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -57,9 +77,9 @@ class GuideDiscoverView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 상단: 유저 정보 및 예산
             Row(
               children: [
-                // ✅ 3. 형님 말씀대로 사진 없으면 회색 배경에 사람 아이콘!
                 CircleAvatar(
                   backgroundColor: Colors.grey.shade200,
                   backgroundImage: (profileUrl != null && profileUrl.isNotEmpty)
@@ -72,7 +92,6 @@ class GuideDiscoverView extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    // ✅ 4. 닉네임 null 체크 추가
                     "${writer?['nickname'] ?? '알 수 없는 유저'} • ${req['companion_type'] ?? '기타'}",
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
@@ -87,7 +106,26 @@ class GuideDiscoverView extends StatelessWidget {
                 ),
               ],
             ),
-            const Divider(height: 30),
+            const Divider(height: 24),
+
+            // 위치 및 날짜/시간 정보 태그
+            Row(
+              children: [
+                _buildInfoTag(
+                  Icons.location_on_outlined,
+                  req['location_name'] ?? '위치 미정',
+                  Colors.grey,
+                ),
+                const SizedBox(width: 8),
+                _buildInfoTag(
+                  Icons.calendar_today_outlined,
+                  "$displayDate ${displayTime.isNotEmpty ? '· $displayTime' : ''}",
+                  AppColors.travelingBlue,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
             Text(
               req['title'] ?? '제목 없음',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -100,24 +138,34 @@ class GuideDiscoverView extends StatelessWidget {
               style: TextStyle(color: Colors.grey[800]),
             ),
             const SizedBox(height: 16),
+
+            // 제안 버튼 (이미 지원했으면 오렌지색으로 잠금)
             SizedBox(
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: isFull ? null : () => _showOfferModal(context, req),
+                onPressed: (isFull || isApplied)
+                    ? null
+                    : () => _showOfferModal(context, req),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isFull
-                      ? Colors.grey.shade400
-                      : AppColors.travelingBlue,
-                  disabledBackgroundColor: Colors.grey.shade300,
+                  backgroundColor: isApplied
+                      ? Colors.orange
+                      : (isFull
+                            ? Colors.grey.shade400
+                            : AppColors.travelingBlue),
+                  disabledBackgroundColor: isApplied
+                      ? Colors.orange.withOpacity(0.5)
+                      : Colors.grey.shade300,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: Text(
-                  isFull
-                      ? "제안 마감 ($offerCount/5)"
-                      : "가이드 제안 보내기 ($offerCount/5)",
+                  isApplied
+                      ? "이미 제안을 보낸 공고입니다"
+                      : (isFull
+                            ? "제안 마감 ($offerCount/5)"
+                            : "가이드 제안 보내기 ($offerCount/5)"),
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -127,6 +175,31 @@ class GuideDiscoverView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildInfoTag(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -199,7 +272,6 @@ class GuideDiscoverView extends StatelessWidget {
                   if (resultMessage == null) {
                     if (context.mounted) {
                       try {
-                        // ✅ 여기서도 writer 정보가 null일 수 있으니 안전하게 처리
                         final writer = req['users'] as Map<String, dynamic>?;
                         final fcmToken = writer?['fcm_token'];
 
@@ -214,7 +286,6 @@ class GuideDiscoverView extends StatelessWidget {
                               'data': {'type': 'offer', 'requestId': req['id']},
                             },
                           );
-                          debugPrint("🚀 여행자에게 제안 푸시 발송 성공!");
                         }
                       } catch (e) {
                         debugPrint("❌ 제안 푸시 발송 실패: $e");
@@ -224,8 +295,6 @@ class GuideDiscoverView extends StatelessWidget {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text("✅ 제안을 성공적으로 보냈습니다!")),
                       );
-
-                      // ✅ 제안 성공 후 부모 위젯 새로고침 호출 (0/5 -> 1/5 반영)
                       onRefresh();
                     }
                   } else {

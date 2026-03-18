@@ -77,38 +77,57 @@ class AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> pages = [
-      HomePage(
-        onGoToTravel: () => _onTabSelected(2),
-        onModeChanged: (isTraveler) {
-          debugPrint("🔔 모드 변경: ${isTraveler ? '여행자' : '가이드'}");
-          setState(() => _isTraveler = isTraveler); // ✅ 모드 업데이트
-          _discoverKey.currentState?.refreshData();
-        },
-        onStartRequest: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const RequestCreatePage()),
-          );
-        },
-        onStartGuide: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const GuideMatchingListPage(),
-            ),
-          );
-        },
-      ),
-      const MapViewPage(),
-      DiscoverPage(key: _discoverKey),
-      ChatMainPage(initialTabIndex: _chatInitialTab),
-      const MyProfilePage(),
-    ];
+    // 💡 기존의 pages 리스트 정의는 그대로 두거나,
+    // 아래 Stack 내부에서 직접 호출하는 것이 메모리 관리에 더 명확합니다.
 
     return Scaffold(
       extendBody: true,
-      body: IndexedStack(index: _currentIndex, children: pages),
+      // ⬇️ IndexedStack 대신 Stack으로 변경
+      body: Stack(
+        children: [
+          // 0: 홈 (상태 유지)
+          Offstage(
+            offstage: _currentIndex != 0,
+            child: HomePage(
+              onGoToTravel: () => _onTabSelected(2),
+              onModeChanged: (isTraveler) {
+                debugPrint("🔔 모드 변경: ${isTraveler ? '여행자' : '가이드'}");
+                setState(() => _isTraveler = isTraveler);
+                _discoverKey.currentState?.refreshData();
+              },
+              onStartRequest: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RequestCreatePage()),
+                );
+              },
+              onStartGuide: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const GuideMatchingListPage(),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // 1: 지도 (✅ 탭 클릭 시마다 새로 빌드하여 initState 호출 유도)
+          if (_currentIndex == 1) const MapViewPage(),
+
+          // 2: 찾기 (상태 유지)
+          if (_currentIndex == 2) DiscoverPage(key: _discoverKey),
+
+          // 3: 채팅 (상태 유지)
+          Offstage(
+            offstage: _currentIndex != 3,
+            child: ChatMainPage(initialTabIndex: _chatInitialTab),
+          ),
+
+          // 4: 내정보 (상태 유지)
+          Offstage(offstage: _currentIndex != 4, child: const MyProfilePage()),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: _onTabSelected,

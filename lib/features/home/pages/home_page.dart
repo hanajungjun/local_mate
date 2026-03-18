@@ -26,27 +26,33 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // ✅ 현재 모드 상태 (true: 여행자, false: 가이드)
   bool _isTravelerMode = true;
+  String? _profileImageUrl;
+
   @override
   void initState() {
     super.initState();
-    _loadUserMode(); // 시작할 때 마지막 모드 불러오기
+    _loadUserData();
   }
 
-  // DB에서 마지막 모드 설정 가져오기
-  Future<void> _loadUserMode() async {
+  Future<void> _loadUserData() async {
     try {
       final profile = await ProfileService().getMyProfile();
-      if (profile != null && profile['last_mode'] != null) {
+      if (profile != null) {
         setState(() {
-          _isTravelerMode = profile['last_mode'] == 'traveler';
+          if (profile['last_mode'] != null) {
+            _isTravelerMode = profile['last_mode'] == 'traveler';
+          }
+          final List<dynamic> images = profile['profile_image'] ?? [];
+          if (images.isNotEmpty) {
+            _profileImageUrl = images[0];
+          }
         });
       }
     } catch (e) {
-      debugPrint("모드 로딩 실패: $e");
+      debugPrint("데이터 로딩 실패: $e");
     }
   }
 
-  // 모드 전환 및 DB 저장
   Future<void> _toggleMode(bool travelerMode) async {
     if (_isTravelerMode == travelerMode) return;
 
@@ -54,7 +60,6 @@ class _HomePageState extends State<HomePage> {
 
     try {
       await UserService().updateLastMode(travelerMode ? 'traveler' : 'guide');
-      // ✅ 추가: 부모 위젯(MainScreen)에게 모드가 바뀌었다고 알림
       if (widget.onModeChanged != null) {
         widget.onModeChanged!(travelerMode);
       }
@@ -70,7 +75,7 @@ class _HomePageState extends State<HomePage> {
       body: SafeArea(
         child: Column(
           children: [
-            // 1. [고정] 상단 헤더
+            // 1. [고정] 상단 헤더 (로고 색상 변경 적용)
             _buildCustomHeader(),
 
             // 2. [고정] 모드 전환 토글 탭
@@ -90,31 +95,48 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // 상단 헤더
+  // ✅ 상단 헤더: 로고 색상이 모드에 따라 변경됨
   Widget _buildCustomHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(27, 20, 27, 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            "Local Mate",
+          // 🎨 모드에 따라 로고 색상 동적 변경
+          AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 300),
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: AppColors.travelingBlue,
+              // ✅ 여행자면 Blue, 가이드면 Purple
+              color: _isTravelerMode
+                  ? AppColors.travelingBlue
+                  : AppColors.travelingPurple,
             ),
+            child: const Text("Local Mate"),
           ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.notifications_none_rounded, size: 28),
+
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.grey.shade200, width: 1),
+            ),
+            child: CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.grey.shade100,
+              backgroundImage: _profileImageUrl != null
+                  ? NetworkImage(_profileImageUrl!) as ImageProvider
+                  : null,
+              child: _profileImageUrl == null
+                  ? Icon(Icons.person, color: Colors.grey.shade400, size: 24)
+                  : null,
+            ),
           ),
         ],
       ),
     );
   }
 
-  // 여행자/가이드 모드 전환 토글
   Widget _buildModeToggle() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 27, vertical: 15),
@@ -131,13 +153,13 @@ class _HomePageState extends State<HomePage> {
               "여행자 모드",
               _isTravelerMode,
               AppColors.travelingBlue,
-              () => _toggleMode(true), // ✅ 수정
+              () => _toggleMode(true),
             ),
             _buildToggleItem(
               "가이드 모드",
               !_isTravelerMode,
               AppColors.travelingPurple,
-              () => _toggleMode(false), // ✅ 수정
+              () => _toggleMode(false),
             ),
           ],
         ),

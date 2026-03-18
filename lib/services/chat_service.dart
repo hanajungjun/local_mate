@@ -1,24 +1,64 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/material.dart';
+import 'dart:typed_data';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 class ChatService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // 🎯 1. 채팅방 가져오기 또는 새로 만들기
-  // services/chat_service.dart
+  // 1. [내부 함수] 상대방 부재 시 푸시 알림 발송 로직 (중복 제거)
+  Future<void> _sendPushIfInactive(String roomId, String content) async {
+    try {
+      final roomData = await _supabase
+          .from('chat_rooms')
+          .select('active_users, participant_a, participant_b')
+          .eq('id', roomId)
+          .single();
 
-  // 💡 requestId 뒤에 ?를 붙여서 null이 가능하게 하고, 기본값을 null로 설정합니다.
+      final myId = _supabase.auth.currentUser!.id;
+      final String targetId = roomData['participant_a'] == myId
+          ? roomData['participant_b']
+          : roomData['participant_a'];
+
+      final List activeUsers = roomData['active_users'] ?? [];
+
+      // 상대방이 현재 채팅방을 보고 있지 않을 때만 푸시 발송
+      if (!activeUsers.contains(targetId)) {
+        final targetUser = await _supabase
+            .from('users')
+            .select('fcm_token')
+            .eq('id', targetId)
+            .single();
+
+        if (targetUser['fcm_token'] != null) {
+          await _supabase.functions.invoke(
+            'send-push',
+            body: {
+              'targetType': 'token',
+              'targetValue': targetUser['fcm_token'],
+              'title':
+                  '${_supabase.auth.currentUser!.userMetadata?['nickname'] ?? "메이트"}',
+              'body': content,
+              'data': {'type': 'chat', 'roomId': roomId},
+            },
+          );
+          debugPrint("🚀 푸시 알림 발송 완료");
+        }
+      }
+    } catch (e) {
+      debugPrint("⚠️ 푸시 발송 체크 중 오류 (무시 가능): $e");
+    }
+  }
+
+  // 2. 채팅방 가져오기 또는 생성
   Future<String> getOrCreateRoom(
     String myId,
     String targetId, {
     String? requestId,
   }) async {
     try {
-      // 1. 기존 방 확인 로직
       var query = _supabase.from('chat_rooms').select('id');
-
       if (requestId != null) {
-        // 공고 기반 채팅일 때
         query = query.eq('request_id', requestId);
       }
 
@@ -30,13 +70,12 @@ class ChatService {
 
       if (existingRoom != null) return existingRoom['id'];
 
-      // 2. 새 방 생성
       final newRoom = await _supabase
           .from('chat_rooms')
           .insert({
             'participant_a': myId,
             'participant_b': targetId,
-            'request_id': requestId, // null이면 null로 들어감
+            'request_id': requestId,
             'last_message': '대화를 시작해보세요!',
           })
           .select()
@@ -49,7 +88,7 @@ class ChatService {
     }
   }
 
-  // 🎯 2. 실시간 메시지 스트림 (Stream)
+  // 3. 메시지 스트림
   Stream<List<Map<String, dynamic>>> getMessageStream(String roomId) {
     return _supabase
         .from('messages')
@@ -58,67 +97,96 @@ class ChatService {
         .order('created_at', ascending: false);
   }
 
-  // 🎯 3. 메시지 보내기
+  // 4. 텍스트 메시지 전송
   Future<void> sendMessage(
     String roomId,
     String senderId,
     String content,
   ) async {
-    // 1. 메시지 DB 저장 (기존 로직)
+    // 메시지 저장
     await _supabase.from('messages').insert({
       'room_id': roomId,
       'sender_id': senderId,
       'content': content,
+      'message_type': 'text',
+      'is_read': false,
     });
 
-    // 2. 상대방 정보 및 방 상태 조회
-    // (상대방 fcm_token과 현재 방에 들어와 있는지 active_users 확인)
-    final roomData = await _supabase
+    // 채팅방 목록 미리보기 업데이트
+    await _supabase
         .from('chat_rooms')
-        .select('active_users, participant_a, participant_b')
-        .eq('id', roomId)
-        .single();
+        .update({
+          'last_message': content,
+          'last_message_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', roomId);
 
-    final myId = _supabase.auth.currentUser!.id;
-    final String targetId = roomData['participant_a'] == myId
-        ? roomData['participant_b']
-        : roomData['participant_a'];
+    // 푸시 알림 체크
+    await _sendPushIfInactive(roomId, content);
+  }
 
-    final List activeUsers = roomData['active_users'] ?? [];
+  // 5. 이미지 메시지 전송 (WebP 압축 포함)
+  Future<void> sendImageMessage(
+    String roomId,
+    String senderId,
+    dynamic imageFile,
+  ) async {
+    try {
+      // WebP 변환 및 압축
+      final Uint8List? compressedBytes =
+          await FlutterImageCompress.compressWithFile(
+            imageFile.path,
+            minWidth: 1024,
+            minHeight: 1024,
+            quality: 80,
+            format: CompressFormat.webp,
+          );
 
-    // 3. 상대방이 방에 없으면(채팅창 안 보고 있으면) 푸시 발송!
-    if (!activeUsers.contains(targetId)) {
-      // 상대방의 fcm_token 가져오기
-      final targetUser = await _supabase
-          .from('users')
-          .select('fcm_token, nickname')
-          .eq('id', targetId)
-          .single();
+      if (compressedBytes == null) return;
 
-      if (targetUser['fcm_token'] != null) {
-        await _supabase.functions.invoke(
-          'send-push',
-          body: {
-            'targetType': 'token',
-            'targetValue': targetUser['fcm_token'],
-            'title':
-                '${_supabase.auth.currentUser!.userMetadata?['nickname'] ?? "메이트"}',
-            'body': content, // 메시지 내용
-            'data': {'type': 'chat', 'roomId': roomId},
-          },
-        );
-        debugPrint("🚀 상대방이 부재중이라 푸시 발송 완료!");
-      }
-    } else {
-      debugPrint("🤫 상대방이 채팅 중이라 푸시를 생략합니다.");
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.webp';
+      final path = 'chat/$roomId/$fileName';
+
+      // Supabase Storage 업로드
+      await _supabase.storage
+          .from('chat')
+          .uploadBinary(
+            path,
+            compressedBytes,
+            fileOptions: const FileOptions(contentType: 'image/webp'),
+          );
+
+      final imageUrl = _supabase.storage.from('chat').getPublicUrl(path);
+      const String pushContent = '📷 사진을 보냈습니다.';
+
+      // 메시지 저장
+      await _supabase.from('messages').insert({
+        'room_id': roomId,
+        'sender_id': senderId,
+        'content': pushContent,
+        'message_type': 'image',
+        'image_url': imageUrl,
+        'is_read': false,
+      });
+
+      // 채팅방 목록 업데이트
+      await _supabase
+          .from('chat_rooms')
+          .update({
+            'last_message': pushContent,
+            'last_message_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', roomId);
+
+      // 푸시 알림 체크
+      await _sendPushIfInactive(roomId, pushContent);
+    } catch (e) {
+      debugPrint("❌ 이미지 전송 실패: $e");
     }
   }
 
+  // 6. 채팅방 목록 스트림
   Stream<List<Map<String, dynamic>>> getChatRoomsStream() {
-    final myId = _supabase.auth.currentUser!.id;
-
-    // 💡 포인트: 테이블 뒤에 .select('*, users!other_participant_id(nickname, profile_image)')
-    // 형태로 조인하면 상대방 정보를 한 번에 긁어옵니다.
     return _supabase
         .from('my_chat_rooms')
         .stream(primaryKey: ['id'])
@@ -126,110 +194,51 @@ class ChatService {
         .map((maps) => maps.map((map) => map as Map<String, dynamic>).toList());
   }
 
-  // 타이핑 상태 업데이트
+  // 7. 타이핑 및 퇴장 관련 함수들
   Future<void> updateTypingStatus(
     String roomId,
     String userId,
     bool isTyping,
   ) async {
-    if (isTyping) {
-      await _supabase
-          .from('chat_rooms')
-          .update({
-            'typing_users': _supabase.rpc(
-              'array_append_unique',
-              params: {
-                'arr': 'typing_users', // 실제로는 RPC나 array_append 사용
-                'val': userId,
-              },
-            ),
-          })
-          .eq('id', roomId);
-
-      // 간단하게 하려면 아래처럼 처리 (PostgreSQL array_append 사용)
-      await _supabase.rpc(
-        'update_typing_presence',
-        params: {'room_id': roomId, 'user_id': userId, 'is_typing': true},
-      );
-    } else {
-      await _supabase.rpc(
-        'update_typing_presence',
-        params: {'room_id': roomId, 'user_id': userId, 'is_typing': false},
-      );
-    }
+    await _supabase.rpc(
+      'update_typing_presence',
+      params: {'room_id': roomId, 'user_id': userId, 'is_typing': isTyping},
+    );
   }
 
-  Future<void> sendImageMessage(
-    String roomId,
-    String senderId,
-    String imageUrl,
-  ) async {
-    // 1. [여기에 결제 재화 체크/차감 로직이 들어갈 자리]
-    // 예: if (userPoints < 10) throw Error("포인트가 부족합니다.");
-
-    // 2. 메시지 저장 (type을 image로!)
-    await _supabase.from('messages').insert({
-      'room_id': roomId,
-      'sender_id': senderId,
-      'content': '사진을 보냈습니다.', // 목록 미리보기용 텍스트
-      'message_type': 'image',
-      'image_url': imageUrl,
-    });
-
-    // 3. 기존 스마트 푸시 로직 동일하게 수행 (body를 "사진을 보냈습니다"로)
-    // ... (기존 sendMessage의 푸시 로직 호출)
-  }
-
-  // 채팅방 완전히 떠나기
-  Future<void> deleteChatRoom(String roomId) async {
-    final myId = _supabase.auth.currentUser!.id;
-
-    try {
-      // 1. 메시지 삭제 (선택: 내 메시지만 or 전체)
-      // 여기선 채팅방 자체를 나가는 방식으로 처리
-
-      // 2. chat_rooms에서 삭제 (또는 left_users 배열에 추가하는 소프트 삭제)
-      await _supabase.from('chat_rooms').delete().eq('id', roomId);
-    } catch (e) {
-      debugPrint('채팅방 나가기 에러: $e');
-      rethrow;
-    }
-  }
-
-  /// 채팅방 나가기 (소프트 삭제)
-  /// - 나는 목록에서 사라짐
-  /// - 상대방은 목록에 보이지만 메시지 전송 차단됨
   Future<void> leaveChatRoom(String roomId) async {
     final myId = _supabase.auth.currentUser!.id;
-
-    try {
-      // left_users 배열에 내 ID 추가 (PostgreSQL array_append)
-      await _supabase.rpc(
-        'leave_chat_room',
-        params: {'room_id': roomId, 'user_id': myId},
-      );
-      debugPrint("✅ 채팅방 나가기 완료");
-    } catch (e) {
-      debugPrint('채팅방 나가기 에러: $e');
-      rethrow;
-    }
+    await _supabase.rpc(
+      'leave_chat_room',
+      params: {'room_id': roomId, 'user_id': myId},
+    );
   }
 
-  /// 상대방이 나갔는지 확인
   Future<bool> isPartnerLeft(String roomId) async {
     final myId = _supabase.auth.currentUser!.id;
-
     final room = await _supabase
         .from('chat_rooms')
         .select('left_users, participant_a, participant_b')
         .eq('id', roomId)
         .single();
-
     final String partnerId = room['participant_a'] == myId
         ? room['participant_b']
         : room['participant_a'];
-
     final List leftUsers = room['left_users'] ?? [];
     return leftUsers.contains(partnerId);
+  }
+
+  Future<void> reportMessage({
+    required String messageId,
+    required String roomId,
+    required String reason,
+  }) async {
+    final myId = _supabase.auth.currentUser!.id;
+    await _supabase.from('reports').insert({
+      'reporter_id': myId,
+      'message_id': messageId,
+      'room_id': roomId,
+      'reason': reason,
+    });
   }
 }

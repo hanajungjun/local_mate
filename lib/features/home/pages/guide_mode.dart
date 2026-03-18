@@ -276,11 +276,18 @@ class _GuideModeState extends State<GuideMode> {
             final DateTime tripDate = DateTime.parse(
               item['trip_date'],
             ).toLocal();
+
             final String formattedDate =
                 '${DateUtilsHelper.formatScheduleDate(tripDate)} '
                 '${tripDate.hour.toString().padLeft(2, '0')}:${tripDate.minute.toString().padLeft(2, '0')}';
 
-            // ✅ InkWell로 감싸서 탭 시 상세 페이지로 이동
+            // ✅ [수정] DB의 status 값을 직접 확인합니다.
+            // status가 'booked'이면 "예약됨", 그 외에는 "모집 중" (또는 상황에 맞게)
+            final String dbStatus = item['status'] ?? 'open';
+            final String displayStatus = (dbStatus == 'booked')
+                ? "예약됨"
+                : "모집 중";
+
             return InkWell(
               onTap: () => Navigator.push(
                 context,
@@ -292,7 +299,7 @@ class _GuideModeState extends State<GuideMode> {
               child: _buildVerticalScheduleCard(
                 formattedDate,
                 item['title'] ?? "제목 없음",
-                (item['current_people'] ?? 0) > 0 ? "예약됨" : "모집 중",
+                displayStatus, // ✅ 가공된 텍스트 전달
                 color,
               ),
             );

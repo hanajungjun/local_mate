@@ -11,7 +11,8 @@ class ProfileGuideTab extends StatefulWidget {
   final List<String> selectedSpecialties;
   final Map<String, int> selectedLanguageLevels;
   final VoidCallback onChanged;
-
+  // ✅ 이 부분이 추가되어야 에러가 사라집니다!
+  final Function(double lat, double lng)? onLocationCaptured;
   const ProfileGuideTab({
     super.key,
     required this.selectedLocations,
@@ -20,6 +21,7 @@ class ProfileGuideTab extends StatefulWidget {
     required this.selectedSpecialties,
     required this.selectedLanguageLevels,
     required this.onChanged,
+    this.onLocationCaptured,
   });
 
   @override
@@ -45,6 +47,9 @@ class _ProfileGuideTabState extends State<ProfileGuideTab> {
     'Bahasa Indonesia',
     'हिन्दी',
   ];
+
+  double? _currentLatitude;
+  double? _currentLongitude;
 
   // ✅ 언어 추가 BottomSheet
   void _showAddLanguageSheet() {
@@ -186,6 +191,17 @@ class _ProfileGuideTabState extends State<ProfileGuideTab> {
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
       );
+
+      if (widget.onLocationCaptured != null) {
+        widget.onLocationCaptured!(pos.latitude, pos.longitude);
+      }
+
+      // ✅ 1. 가져온 좌표를 상태 변수에 저장
+      setState(() {
+        _currentLatitude = pos.latitude;
+        _currentLongitude = pos.longitude;
+      });
+
       final placemarks = await placemarkFromCoordinates(
         pos.latitude,
         pos.longitude,
@@ -210,7 +226,10 @@ class _ProfileGuideTabState extends State<ProfileGuideTab> {
           widget.selectedLocations[0] = address;
         }
       });
+
+      // ✅ 2. 부모 위젯에게 변경 알림 (이때 부모에서 lat, lng도 넘겨받을 수 있게 구조를 짜면 더 좋습니다)
       widget.onChanged();
+
       if (mounted) AppToast.success(context, '현재 위치 등록: $address');
     } catch (e) {
       if (mounted) AppToast.error(context, '위치를 가져오지 못했습니다.');

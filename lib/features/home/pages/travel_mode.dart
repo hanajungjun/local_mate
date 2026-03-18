@@ -32,11 +32,17 @@ class _TravelModeState extends State<TravelMode> {
     setState(() {
       _schedulesFuture = ScheduleService().getUserSchedules();
 
+      // ✅ [수정] streamBuilder에서 eq를 쓰는 올바른 방법
       _requestsStream = Supabase.instance.client
           .from('travel_requests')
           .stream(primaryKey: ['id'])
           .eq('writer_id', myId ?? '')
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .map(
+            (items) =>
+                items.where((item) => item['status'] == 'searching').toList(),
+          );
+      // 💡 스트림 결과물에서 직접 필터링하는 게 가장 안전합니다.
     });
   }
 
@@ -370,6 +376,22 @@ class _TravelModeState extends State<TravelMode> {
           itemBuilder: (context, index) {
             final req = requests[index];
 
+            // ✅ 1. travel_at 날짜 파싱 로직 추가
+            final String travelAtRaw = req['travel_at'] ?? '';
+            String displayDateTime = '날짜 미정';
+
+            if (travelAtRaw.isNotEmpty) {
+              try {
+                DateTime dt = DateTime.parse(travelAtRaw).toLocal();
+                final weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+                String date =
+                    "${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')} (${weekdays[dt.weekday - 1]})";
+                String time =
+                    "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+                displayDateTime = "$date $time";
+              } catch (_) {}
+            }
+
             final int offerCount =
                 (req['offers'] != null && (req['offers'] as List).isNotEmpty)
                 ? req['offers'][0]['count']
@@ -416,11 +438,23 @@ class _TravelModeState extends State<TravelMode> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // ✅ 2. 날짜 표시 추가
+                          Text(
+                            displayDateTime,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: hasOffers
+                                  ? Colors.blue.shade400
+                                  : Colors.grey.shade400,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
                           Text(
                             req['title'] ?? '제목 없음',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 14,
+                              fontSize: 15, // 폰트 크기 살짝 키움
                             ),
                           ),
                           const SizedBox(height: 4),

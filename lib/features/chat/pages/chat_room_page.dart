@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/chat_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:wechat_assets_picker/wechat_assets_picker.dart';
 
 class ChatRoomPage extends StatefulWidget {
   final String roomId;
   final Map<String, dynamic> targetUser;
-
   const ChatRoomPage({
     super.key,
     required this.roomId,
@@ -25,7 +26,8 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   late final Stream<List<Map<String, dynamic>>> _messageStream;
   late Stream<List<Map<String, dynamic>>> _roomStream;
   bool _isPartnerLeft = false;
-
+  bool _isUploading = false;
+  final ImagePicker _picker = ImagePicker();
   // ✅ 상대방이 가이드면 내가 여행자, 상대방이 여행자면 내가 가이드
   bool get _isTraveler => widget.targetUser['is_guide'] == true;
 
@@ -37,33 +39,116 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     _roomStream = supabase
         .from('chat_rooms')
         .stream(primaryKey: ['id'])
-        .eq('id', widget.roomId)
-        .handleError((error) {
-          debugPrint("📡 Realtime Stream Error: $error");
-          // ✅ 타임아웃 시 3초 후 재연결
-          if (mounted) {
-            Future.delayed(const Duration(seconds: 3), () {
-              if (mounted) {
-                setState(() {
-                  _roomStream = supabase
-                      .from('chat_rooms')
-                      .stream(primaryKey: ['id'])
-                      .eq('id', widget.roomId)
-                      .handleError((e) => debugPrint("📡 재연결 실패: $e"));
-                });
-              }
-            });
-          }
-        });
+        .eq('id', widget.roomId);
 
+    // ✅ 방 진입 시: 1) Presence 업데이트 (나 들어왔다!)
     _updatePresence(true);
+    // ✅ 2) [핵심 추가] RPC 호출: 상대방 메시지 전부 읽음 처리
+    _markAsRead();
   }
 
   @override
   void dispose() {
     _handleTyping("");
+    // ✅ 방 나갈 때: active_users에서 나를 제거
+    _updatePresence(false);
     _controller.dispose();
     super.dispose();
+  }
+
+  // 📸 이미지 선택 및 전송 처리 함수
+  Future<void> _pickImage() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('사진 촬영'),
+              onTap: () async {
+                Navigator.pop(context);
+                final XFile? photo = await _picker.pickImage(
+                  source: ImageSource.camera,
+                  imageQuality: 70,
+                );
+                if (photo != null) _sendImage(photo);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('갤러리에서 선택'),
+              onTap: () async {
+                Navigator.pop(context);
+
+                // ✅ 영상은 선택 못 하게 이미지 타입만 필터링 (requestType 추가)
+                final List<AssetEntity>? assets = await AssetPicker.pickAssets(
+                  context,
+                  pickerConfig: const AssetPickerConfig(
+                    maxAssets: 1,
+                    requestType: RequestType.image, // 👈 여기서 이미지만 나오게 설정!
+                  ),
+                );
+
+                if (assets != null && assets.isNotEmpty) {
+                  // ✅ 혹시 모르니 타입 한 번 더 체크 (방어 코드)
+                  if (assets.first.type == AssetType.video) {
+                    _showVideoAlert();
+                    return;
+                  }
+
+                  final file = await assets.first.file;
+                  if (file != null) _sendImage(file);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ 영상 전송 불가 안내 알림창
+  void _showVideoAlert() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("알림"),
+        content: const Text("동영상 전송 기능은 현재 준비 중입니다.\n사진만 전송해 주세요!"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("확인"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendImage(dynamic file) async {
+    setState(() => _isUploading = true); // 로딩 시작
+    try {
+      await _chatService.sendImageMessage(
+        widget.roomId,
+        supabase.auth.currentUser!.id,
+        file,
+      );
+    } finally {
+      if (mounted) setState(() => _isUploading = false); // 로딩 끝
+    }
+  }
+
+  // ✅ [추가] 읽음 처리 RPC 함수 호출
+  Future<void> _markAsRead() async {
+    final myId = supabase.auth.currentUser!.id;
+    try {
+      await supabase.rpc(
+        'mark_messages_as_read', // 준님이 만드신 RPC 함수명
+        params: {'p_room_id': widget.roomId, 'p_user_id': myId},
+      );
+    } catch (e) {
+      debugPrint("❌ 읽음 처리 RPC 실패: $e");
+    }
   }
 
   Future<void> _updatePresence(bool isActive) async {
@@ -105,7 +190,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   // ────────────────────────────────────────
-  // 🙋‍♂️ 가이드: 날짜/시간 선택 → chat_rooms 업데이트
+  // 🙋‍♂️ 가이드: 일정 제안 팝업
   // ────────────────────────────────────────
   Future<void> _guideSelectDateTime() async {
     final DateTime? pickedDate = await showDatePicker(
@@ -113,19 +198,19 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       initialDate: DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
-      helpText: "투어 날짜를 선택하세요",
+      helpText: "투어 날짜 선택",
     );
     if (pickedDate == null || !mounted) return;
 
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
-      helpText: "시작 시간을 선택하세요",
+      helpText: "시작 시간 선택",
     );
     if (pickedTime == null || !mounted) return;
 
-    final dateStr = pickedDate.toString().split(' ')[0]; // yyyy-MM-dd
-    final timeStr = _formatTime24(pickedTime); // HH:mm
+    final dateStr = pickedDate.toString().split(' ')[0];
+    final timeStr = _formatTime24(pickedTime);
 
     await supabase
         .from('chat_rooms')
@@ -144,7 +229,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   // ────────────────────────────────────────
-  // 🙋‍♀️ 여행자: 최종 확정 → guide_schedules + user_schedules INSERT
+  // 🙋‍♀️ 여행자: 투어 최종 확정
   // ────────────────────────────────────────
   Future<void> _travelerConfirm(Map<String, dynamic> roomData) async {
     final myId = supabase.auth.currentUser!.id;
@@ -152,51 +237,17 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     final mDate = roomData['meeting_date'] as String?;
     final mTime = roomData['meeting_time'] as String?;
 
-    if (guideId == null || mDate == null || mTime == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("❌ 일정 정보가 부족합니다.")));
-      }
-      return;
-    }
+    if (guideId == null || mDate == null || mTime == null) return;
 
     final tripDateStr = "$mDate $mTime:00+00";
 
-    // ✅ 여행자 본인 닉네임 가져오기
-    final myProfile = await supabase
-        .from('users')
-        .select('nickname')
-        .eq('id', myId)
-        .maybeSingle();
-    final travelerName = myProfile?['nickname'] as String? ?? '여행자';
-    final guideName = widget.targetUser['nickname'] as String? ?? '가이드';
-
-    // request_id 있으면 travel_requests 제목 사용
-    String guideTitle = '$travelerName와의 투어'; // 가이드 스케줄용
-    String userTitle = '$guideName와의 투어'; // 여행자 스케줄용
-    final requestId = roomData['request_id'] as String?;
-    if (requestId != null) {
-      final req = await supabase
-          .from('travel_requests')
-          .select('title')
-          .eq('id', requestId)
-          .maybeSingle();
-      final reqTitle = req?['title'] as String?;
-      if (reqTitle != null) {
-        guideTitle = reqTitle;
-        userTitle = reqTitle;
-      }
-    }
-
     try {
-      // ① chat_rooms → confirmed
       await supabase
           .from('chat_rooms')
           .update({'schedule_status': 'confirmed'})
           .eq('id', widget.roomId);
 
-      // ② travel_requests → confirmed (request_id 있을 때만)
+      final requestId = roomData['request_id'] as String?;
       if (requestId != null) {
         await supabase
             .from('travel_requests')
@@ -204,23 +255,21 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
             .eq('id', requestId);
       }
 
-      // ③ guide_schedules → INSERT (여행자 이름으로)
+      // 가이드 스케줄 추가
       await supabase.from('guide_schedules').insert({
         'guide_id': guideId,
-        'title': guideTitle,
+        'title': roomData['last_message'] ?? '투어 확정',
         'trip_date': tripDateStr,
-        'location': widget.targetUser['location_name'],
-        'max_people': 1,
-        'current_people': 1,
+        'location': widget.targetUser['location_name'] ?? '대구',
         'status': 'booked',
       });
 
-      // ④ user_schedules → INSERT (가이드 이름으로)
+      // 유저 스케줄 추가
       await supabase.from('user_schedules').insert({
         'user_id': myId,
         'guide_id': guideId,
-        'title': userTitle,
-        'partner_name': guideName,
+        'title': roomData['last_message'] ?? '투어 확정',
+        'partner_name': widget.targetUser['nickname'] ?? '가이드',
         'trip_date': tripDateStr,
         'status': 'confirmed',
       });
@@ -231,12 +280,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         ).showSnackBar(const SnackBar(content: Text("🎉 투어가 최종 확정되었습니다!")));
       }
     } catch (e) {
-      debugPrint("❌ 확정 처리 실패: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("❌ 확정 중 오류: $e")));
-      }
+      debugPrint("❌ 확정 에러: $e");
     }
   }
 
@@ -279,38 +323,45 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         builder: (context, roomSnapshot) {
           List<String> typingUsers = [];
           Map<String, dynamic> roomData = {};
+          List<String> activeUsers = []; // ✅ 선언 위치 확인
 
           if (roomSnapshot.hasData && roomSnapshot.data!.isNotEmpty) {
             roomData = roomSnapshot.data!.first;
+            // ✅ 현재 방에 접속 중인 유저 리스트 (실시간 '1' 제거용)
+            activeUsers = List<String>.from(roomData['active_users'] ?? []);
 
-            // 퇴장 감지
-            final activeUsers = List<String>.from(
-              roomData['active_users'] ?? [],
-            );
+            final leftUsers = List<String>.from(roomData['left_users'] ?? []);
             final targetId = widget.targetUser['id'] as String?;
             final partnerLeft =
-                targetId != null && !activeUsers.contains(targetId);
+                targetId != null && leftUsers.contains(targetId);
 
             if (partnerLeft != _isPartnerLeft) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) setState(() => _isPartnerLeft = partnerLeft);
               });
             }
-
             typingUsers = List<String>.from(roomData['typing_users'] ?? []);
           }
 
           return Column(
             children: [
               _buildInfoBar(roomData),
+              if (_isUploading) // ✅ 전송 중일 때 상단에 로딩바 표시
+                const LinearProgressIndicator(
+                  minHeight: 2,
+                  backgroundColor: Colors.transparent,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    AppColors.travelingBlue,
+                  ),
+                ),
               _buildTypingIndicator(typingUsers),
               Expanded(
                 child: StreamBuilder<List<Map<String, dynamic>>>(
                   stream: _messageStream,
                   builder: (context, msgSnapshot) {
-                    if (!msgSnapshot.hasData) {
+                    if (!msgSnapshot.hasData)
                       return const Center(child: CircularProgressIndicator());
-                    }
+
                     final messages = msgSnapshot.data!;
                     return ListView.builder(
                       reverse: true,
@@ -318,12 +369,22 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                       itemCount: messages.length,
                       itemBuilder: (context, index) {
                         final msg = messages[index];
+                        final String senderId = msg['sender_id'] ?? '';
+                        final bool isMe =
+                            senderId == supabase.auth.currentUser!.id;
+
+                        final targetId = widget.targetUser['id'] as String?;
+                        final bool isRead =
+                            (msg['is_read'] == true) ||
+                            (isMe &&
+                                targetId != null &&
+                                activeUsers.contains(targetId));
+
+                        // ✅ 여기를 수정합니다! (파라미터 이름들을 msg 하나로 통일)
                         return _buildMessageBubble(
-                          isMe:
-                              msg['sender_id'] == supabase.auth.currentUser!.id,
-                          text: msg['content'] ?? '',
-                          type: msg['message_type'],
-                          imageUrl: msg['image_url'],
+                          msg: msg, // 메시지 데이터 통째로 전달
+                          isMe: isMe,
+                          isRead: isRead,
                         );
                       },
                     );
@@ -338,6 +399,139 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
+  Widget _buildMessageBubble({
+    required Map<String, dynamic> msg,
+    required bool isMe,
+    required bool isRead,
+  }) {
+    final String text = msg['content'] ?? '';
+    final String? type = msg['message_type'];
+    final String? imageUrl = msg['image_url'];
+
+    return GestureDetector(
+      onLongPress: () => _showReportDialog(msg['id']),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 15),
+        child: Align(
+          alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // [내가 보낸 메시지일 때] 숫자 '1' 표시
+              if (isMe && !isRead)
+                const Padding(
+                  padding: EdgeInsets.only(right: 6, bottom: 2),
+                  child: Text(
+                    '1',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+
+              // 메시지 버블 (여기가 핵심)
+              Container(
+                constraints: const BoxConstraints(
+                  maxWidth: 250,
+                ), // ✅ 최대 가로 폭 고정
+                decoration: BoxDecoration(
+                  color: isMe ? AppColors.travelingBlue : Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isMe ? 16 : 0),
+                    bottomRight: Radius.circular(isMe ? 0 : 16),
+                  ),
+                  boxShadow: [
+                    if (!isMe)
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 5,
+                        offset: const Offset(0, 2),
+                      ),
+                  ],
+                ),
+                // ✅ 이미지일 때와 텍스트일 때 여백 처리를 다르게 해서 크기 고정
+                child: type == 'image' && imageUrl != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          imageUrl,
+                          width: 250, // ✅ 가로 크기 강제 고정 (Overflow 방지)
+                          fit: BoxFit.cover,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              width: 250,
+                              height: 200,
+                              alignment: Alignment.center,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        child: Text(
+                          text,
+                          style: TextStyle(
+                            color: isMe ? Colors.white : Colors.black87,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ 신고 팝업 함수
+  void _showReportDialog(String messageId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          "메시지 신고",
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: const Text("이 메시지를 부적절한 콘텐츠로 신고하시겠습니까?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _chatService.reportMessage(
+                messageId: messageId,
+                roomId: widget.roomId,
+                reason: "부적절한 콘텐츠",
+              );
+              if (mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text("신고가 접수되었습니다.")));
+              }
+            },
+            child: const Text("신고하기", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInfoBar(Map<String, dynamic> roomData) {
     final scheduleStatus = roomData['schedule_status'] as String? ?? 'none';
     final String? mDate = roomData['meeting_date'];
@@ -345,38 +539,27 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
     String message;
     String? btnText;
-    Color barColor;
-    Color iconColor;
+    Color iconColor = Colors.blue;
 
     switch (scheduleStatus) {
       case 'request_confirm':
-        if (_isTraveler) {
-          message = "📅 $mDate $mTime 투어 요청!";
-          btnText = "최종 확정";
-        } else {
-          message = "승인을 기다리는 중입니다...";
-          btnText = "수정하기";
-        }
-        barColor = Colors.orange.shade50;
+        message = _isTraveler ? "📅 $mDate $mTime 투어 요청!" : "승인을 기다리는 중입니다...";
+        btnText = _isTraveler ? "최종 확정" : "수정하기";
         iconColor = Colors.orange;
         break;
-
       case 'confirmed':
-        message = "✅ 확정 완료! ($mDate $mTime) 🎉";
-        barColor = Colors.green.shade50;
+        message = "✅ 확정 완료! ($mDate $mTime)";
+        btnText = null;
         iconColor = Colors.green;
         break;
-
-      default: // none
-        message = _isTraveler ? "가이드의 일정 제안을 기다리는 중입니다." : "투어 일정을 제안해 보세요.";
+      default:
+        message = _isTraveler ? "가이드의 일정을 기다리는 중입니다." : "투어 일정을 제안해 보세요.";
         btnText = _isTraveler ? null : "일정 제안";
-        barColor = Colors.blue.shade50;
-        iconColor = Colors.blue;
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      color: barColor,
+      color: iconColor.withOpacity(0.1),
       child: Row(
         children: [
           Icon(Icons.event, size: 18, color: iconColor),
@@ -389,24 +572,14 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           ),
           if (btnText != null)
             ElevatedButton(
+              onPressed: () =>
+                  _isTraveler && scheduleStatus == 'request_confirm'
+                  ? _travelerConfirm(roomData)
+                  : _guideSelectDateTime(),
               style: ElevatedButton.styleFrom(
                 backgroundColor: iconColor,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                textStyle: const TextStyle(fontSize: 12),
               ),
-              onPressed: () {
-                if (!_isTraveler) {
-                  // 가이드: 날짜 선택 (none → request_confirm, 수정하기도 동일)
-                  _guideSelectDateTime();
-                } else if (_isTraveler && scheduleStatus == 'request_confirm') {
-                  // 여행자: 최종 확정
-                  _travelerConfirm(roomData);
-                }
-              },
               child: Text(btnText),
             ),
         ],
@@ -415,116 +588,28 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   Widget _buildTypingIndicator(List<String> typingUsers) {
-    final targetId = widget.targetUser['id'];
-    if (typingUsers.contains(targetId)) {
-      return Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              "${widget.targetUser['nickname']}님이 입력 중입니다...",
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.grey,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ],
+    if (typingUsers.contains(widget.targetUser['id'])) {
+      return Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Text(
+          "${widget.targetUser['nickname']}님이 입력 중입니다...",
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
         ),
       );
     }
     return const SizedBox.shrink();
   }
 
-  Widget _buildMessageBubble({
-    required bool isMe,
-    required String text,
-    String? type,
-    String? imageUrl,
-  }) {
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 15),
-        padding: type == 'image'
-            ? const EdgeInsets.all(4)
-            : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: const BoxConstraints(maxWidth: 250),
-        decoration: BoxDecoration(
-          color: isMe ? AppColors.travelingBlue : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 0),
-            bottomRight: Radius.circular(isMe ? 0 : 16),
-          ),
-          boxShadow: [
-            if (!isMe)
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 5,
-                offset: const Offset(0, 2),
-              ),
-          ],
-        ),
-        child: type == 'image' && imageUrl != null
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.network(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.broken_image,
-                    size: 50,
-                    color: Colors.grey,
-                  ),
-                ),
-              )
-            : Text(
-                text,
-                style: TextStyle(
-                  color: isMe ? Colors.white : Colors.black87,
-                  fontSize: 15,
-                ),
-              ),
-      ),
-    );
-  }
-
   Widget _buildInputArea() {
     if (_isPartnerLeft) {
       return Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          border: const Border(top: BorderSide(color: Color(0xFFEEEEEE))),
-        ),
-        child: SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.block, color: Colors.grey.shade400, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                "상대방이 채팅방을 나갔습니다.",
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-              ),
-            ],
-          ),
+        padding: const EdgeInsets.all(20),
+        color: Colors.grey.shade100,
+        child: const Center(
+          child: Text("상대방이 채팅방을 나갔습니다.", style: TextStyle(color: Colors.grey)),
         ),
       );
     }
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: const BoxDecoration(
@@ -536,7 +621,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
           children: [
             IconButton(
               icon: const Icon(Icons.add_circle_outline, color: Colors.grey),
-              onPressed: () {},
+              onPressed: _pickImage, // ✅ 여기에 연결!
             ),
             Expanded(
               child: TextField(
@@ -544,7 +629,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
                 onChanged: _handleTyping,
                 onSubmitted: (_) => _onSend(),
                 decoration: InputDecoration(
-                  hintText: "메시지를 입력하세요...",
+                  hintText: "메시지 입력...",
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(25),
                     borderSide: BorderSide.none,
@@ -556,13 +641,9 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
               ),
             ),
             const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _onSend,
-              child: CircleAvatar(
-                backgroundColor: AppColors.travelingBlue,
-                radius: 22,
-                child: const Icon(Icons.send, color: Colors.white, size: 18),
-              ),
+            IconButton(
+              icon: const Icon(Icons.send, color: AppColors.travelingBlue),
+              onPressed: _onSend,
             ),
           ],
         ),

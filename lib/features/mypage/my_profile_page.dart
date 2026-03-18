@@ -3,9 +3,11 @@ import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/login_service.dart';
 import 'package:localmate/services/profile_service.dart';
 import 'package:localmate/features/auth/login_page.dart';
-import 'package:localmate/features/setting/pages/settings_page.dart';
+import 'package:localmate/features/mypage/settings/settings_page.dart';
+import 'package:localmate/features/mypage/shop/shop_page.dart';
 import 'package:localmate/features/mypage/profile/profile_edit_page.dart';
-import 'package:localmate/features/mypage/wishlist/wishlist_page.dart'; // ✅ 추가
+import 'package:localmate/features/mypage/wishlist/wishlist_page.dart';
+import 'package:localmate/features/mypage/supports/my_support_page.dart';
 
 class MyProfilePage extends StatefulWidget {
   const MyProfilePage({super.key});
@@ -53,17 +55,8 @@ class _MyProfilePageState extends State<MyProfilePage> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: Colors.black),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsPage()),
-              );
-            },
-          ),
-        ],
+        // ✅ [수정] 상단 톱니바퀴 아이콘 제거 (메뉴 리스트로 이동했으니까요!)
+        actions: const [],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -82,6 +75,41 @@ class _MyProfilePageState extends State<MyProfilePage> {
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildMenuSection(BuildContext context) {
+    return Column(
+      children: [
+        // ✅ 1. '아이템 상점' -> '상점'으로 이름 변경
+        _menuTile(Icons.storefront_outlined, "상점", "가이드 홍보 아이템 및 유료 서비스", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ShopPage()), // ✅ 이제 여기로 이동!
+          );
+        }),
+        // ✅ 2. '이용권 관리' 자리에 '설정' 배치 (상단에 있던 톱니바퀴 로직 이동)
+        _menuTile(Icons.settings_outlined, "설정", "알림 설정, 계정 관리 및 서비스 환경", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const SettingsPage()),
+          );
+        }),
+
+        _menuTile(Icons.favorite_border, "관심 목록", "내가 찜한 메이트 & 제안 공고", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const WishlistPage()),
+          );
+        }),
+
+        _menuTile(Icons.help_outline, "지원", "공지사항, 약관 및 문의하기", () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const MySupportPage()),
+          );
+        }),
+      ],
     );
   }
 
@@ -211,32 +239,6 @@ class _MyProfilePageState extends State<MyProfilePage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildMenuSection(BuildContext context) {
-    return Column(
-      children: [
-        _menuTile(Icons.storefront_outlined, "아이템 상점", "가이드 홍보 아이템 사기", () {}),
-        // ✅ 관심목록 → WishlistPage로 이동
-        _menuTile(Icons.favorite_border, "관심 목록", "내가 찜한 메이트 & 제안 공고", () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const WishlistPage()),
-          );
-        }),
-        _menuTile(Icons.card_membership, "이용권 관리", "멤버십 구독 정보", () {}),
-        _menuTile(Icons.help_outline, "고객센터 (로그아웃)", "세션을 종료하고 나갑니다", () async {
-          await _loginService.signOut();
-          if (context.mounted) {
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (context) => const LoginPage()),
-              (route) => false,
-            );
-          }
-        }),
-      ],
     );
   }
 
