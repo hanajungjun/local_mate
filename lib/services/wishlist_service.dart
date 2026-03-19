@@ -42,12 +42,17 @@ class WishlistService {
   }
 
   /// ✅ 내가 제안한 공고 목록 (guide_id = 나)
+  /// ✅ 내가 제안한 공고 목록 (전체 상태 포함)
   Future<List<Map<String, dynamic>>> getMyOffers() async {
     if (_myId == null) return [];
     try {
+      // offers의 status와 travel_requests의 status를 모두 가져옵니다.
       final data = await _supabase
           .from('offers')
-          .select('*, travel_requests(*)')
+          .select('''
+            *,
+            travel_requests (*)
+          ''')
           .eq('guide_id', _myId!)
           .order('created_at', ascending: false);
 

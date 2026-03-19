@@ -19,6 +19,10 @@ class _WishlistPageState extends State<WishlistPage>
   List<Map<String, dynamic>> _offers = [];
   bool _isLoading = true;
 
+  // ✅ 필터 상태 관리를 위한 변수
+  String _selectedFilter = '전체';
+  final List<String> _filters = ['전체', '대기 중', '수락됨', '거절됨', '취소됨', '완료됨'];
+
   @override
   void initState() {
     super.initState();
@@ -117,27 +121,92 @@ class _WishlistPageState extends State<WishlistPage>
   }
 
   // ─────────────────────────────────────────
-  // 탭 2: 내가 제안한 공고 목록
+  // 탭 2: 내가 제안한 공고 목록 (필터 기능 포함)
   // ─────────────────────────────────────────
   Widget _buildOffersTab() {
-    if (_offers.isEmpty) {
-      return _buildEmpty('아직 제안한 공고가 없어요 📋');
-    }
-    return RefreshIndicator(
-      onRefresh: _loadAll,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: _offers.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final offer = _offers[index];
-          final request = offer['travel_requests'] ?? {};
-          return _OfferCard(offer: offer, request: request);
-        },
-      ),
+    // ✅ 필터링 로직
+    final filteredOffers = _offers.where((offer) {
+      if (_selectedFilter == '전체') return true;
+      final status = offer['status'] ?? 'pending';
+      switch (_selectedFilter) {
+        case '대기 중':
+          return status == 'pending';
+        case '수락됨':
+          return status == 'accepted';
+        case '거절됨':
+          return status == 'rejected';
+        case '취소됨':
+          return status == 'cancelled';
+        case '완료됨':
+          return status == 'completed';
+        default:
+          return true;
+      }
+    }).toList();
+
+    return Column(
+      children: [
+        // 🔍 필터 칩 영역
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: _filters.map((filter) {
+              final isSelected = _selectedFilter == filter;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(filter),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedFilter = filter);
+                  },
+                  selectedColor: Colors.black,
+                  backgroundColor: Colors.grey.shade100,
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.white : Colors.black,
+                    fontSize: 13,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                      color: isSelected ? Colors.black : Colors.grey.shade300,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+
+        // 📋 리스트 영역
+        Expanded(
+          child: filteredOffers.isEmpty
+              ? _buildEmpty('해당하는 제안이 없어요 📋')
+              : RefreshIndicator(
+                  onRefresh: _loadAll,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: filteredOffers.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final offer = filteredOffers[index];
+                      final request = offer['travel_requests'] ?? {};
+                      return _OfferCard(offer: offer, request: request);
+                    },
+                  ),
+                ),
+        ),
+      ],
     );
   }
 
+  // ─────────────────────────────────────────
+  // 공통: 빈 목록 표시용 위젯 (형님 아까 에러난 부분!)
+  // ─────────────────────────────────────────
   Widget _buildEmpty(String message) {
     return Center(
       child: Column(
@@ -156,7 +225,7 @@ class _WishlistPageState extends State<WishlistPage>
 }
 
 // ─────────────────────────────────────────
-// 좋아요 타일
+// 좋아요 타일 위젯
 // ─────────────────────────────────────────
 class _LikeTile extends StatelessWidget {
   final Map<String, dynamic> user;
@@ -176,7 +245,6 @@ class _LikeTile extends StatelessWidget {
     final nationality = user['nationality'] ?? '로컬';
     final age = user['age']?.toString() ?? '??';
 
-    // created_at 날짜 포맷 (앞 10자리만)
     final date = likedAt.length >= 10 ? likedAt.substring(0, 10) : likedAt;
 
     return ListTile(
@@ -225,7 +293,7 @@ class _LikeTile extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────
-// 공고 제안 카드
+// 공고 제안 카드 위젯
 // ─────────────────────────────────────────
 class _OfferCard extends StatelessWidget {
   final Map<String, dynamic> offer;
@@ -239,6 +307,10 @@ class _OfferCard extends StatelessWidget {
         return Colors.green;
       case 'rejected':
         return Colors.red;
+      case 'cancelled':
+        return Colors.grey;
+      case 'completed':
+        return Colors.blue;
       default:
         return Colors.orange;
     }
@@ -250,6 +322,10 @@ class _OfferCard extends StatelessWidget {
         return '수락됨 ✅';
       case 'rejected':
         return '거절됨 ❌';
+      case 'cancelled':
+        return '취소됨 🚫';
+      case 'completed':
+        return '완료됨 🏆';
       default:
         return '대기 중 ⏳';
     }
@@ -260,8 +336,6 @@ class _OfferCard extends StatelessWidget {
     final status = offer['status'] ?? 'pending';
     final price = offer['price'] ?? 0;
     final message = offer['message'] ?? '';
-    final meetingDate = offer['meeting_date'] ?? '-';
-    final meetingTime = offer['meeting_time'] ?? '-';
     final requestTitle = request['title'] ?? '공고 정보 없음';
     final createdAt = (offer['created_at'] ?? '').toString();
     final date = createdAt.length >= 10
@@ -274,14 +348,17 @@ class _OfferCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
-        boxShadow: const [
-          BoxShadow(blurRadius: 6, color: Colors.black12, offset: Offset(0, 2)),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 10,
+            color: Colors.black.withOpacity(0.05),
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 상단: 공고 제목 + 상태 뱃지
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -318,14 +395,7 @@ class _OfferCard extends StatelessWidget {
           const SizedBox(height: 12),
           const Divider(height: 1),
           const SizedBox(height: 12),
-          // 제안 내용
           _infoRow(Icons.attach_money, '제안 금액', '${price.toString()}원'),
-          const SizedBox(height: 6),
-          _infoRow(
-            Icons.calendar_today_outlined,
-            '희망 날짜',
-            '$meetingDate $meetingTime',
-          ),
           if (message.isNotEmpty) ...[
             const SizedBox(height: 6),
             _infoRow(Icons.message_outlined, '메시지', message),

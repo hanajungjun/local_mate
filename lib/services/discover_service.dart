@@ -14,7 +14,6 @@ class DiscoverService {
       final myId = _supabase.auth.currentUser?.id;
       if (myId == null) return [];
 
-      // 1. 제외할 ID 목록 (나 + 이미 스와이프한 사람)
       final viewedUsers = await _supabase
           .from('likes')
           .select('to_user_id')
@@ -25,16 +24,13 @@ class DiscoverService {
         List<String>.from(viewedUsers.map((l) => l['to_user_id'].toString())),
       );
 
-      // 2. 쿼리 실행
-      // 여행자 모드일 때는 반드시 가이드 정보(!inner)가 있고, 승인된(approved) 사람만 가져옴
       var query = _supabase
           .from('users')
-          .select('*, guides!inner(*)') // 가이드 테이블에 데이터가 있는 유저만
-          .eq('guide_status', 'approved') // 승인된 가이드만 필터링
-          .not('id', 'in', excludeIds); // 나를 포함한 제외 목록 거르기
+          .select('*, guides!inner(*)')
+          .eq('guide_status', 'approved')
+          .not('id', 'in', excludeIds);
 
       final data = await query.limit(limit);
-
       debugPrint('📊 [결과] 승인된 가이드 수: ${data.length}명');
       return List<Map<String, dynamic>>.from(data);
     } catch (e) {
@@ -59,7 +55,7 @@ class DiscoverService {
     }
   }
 
-  /// ✅ ChatListPage용 매치 목록 (에러 방지용으로 유지)
+  /// ✅ 제안 수락
   Future<String?> acceptOffer({
     required String requestId,
     required String guideId,
@@ -68,7 +64,6 @@ class DiscoverService {
     try {
       final myId = _supabase.auth.currentUser!.id;
 
-      // 0. 기초 데이터 가져오기 (공고 제목, 날짜, 닉네임 등)
       final requestData = await _supabase
           .from('travel_requests')
           .select('title, travel_at, location_name')
@@ -86,7 +81,14 @@ class DiscoverService {
           .eq('id', myId)
           .single();
 
-      // 1. 채팅방 처리 (기존에 준님이 쓰시던 로직 그대로)
+      final DateTime dt = DateTime.parse(
+        requestData['travel_at'].toString(),
+      ).toLocal();
+      final dateStr =
+          "${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
+      final timeStr =
+          "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+
       final existingRoom = await _supabase
           .from('chat_rooms')
           .select('id')
@@ -96,25 +98,18 @@ class DiscoverService {
           .maybeSingle();
 
       String roomId;
-      // 1. 채팅방 처리 로직 내부 수정
+
       if (existingRoom != null) {
         roomId = existingRoom['id'];
         await _supabase
             .from('chat_rooms')
             .update({
               'request_id': requestId,
-              'left_users': [],
-              'last_message': '새로운 여행 매칭이 수락되었습니다.',
-              'last_message_at': DateTime.now().toIso8601String(),
-              // ✅ [추가] 이미 수락했으니 일정 상태를 확정으로 변경!
               'schedule_status': 'confirmed',
-              'meeting_date': requestData['travel_at'].toString().split(
-                ' ',
-              )[0], // 날짜 추출
-              'meeting_time': requestData['travel_at']
-                  .toString()
-                  .split(' ')[1]
-                  .substring(0, 5), // 시간 추출
+              'meeting_date': dateStr,
+              'meeting_time': timeStr,
+              'last_message': '여행 매칭이 확정되었습니다.',
+              'last_message_at': DateTime.now().toIso8601String(),
             })
             .eq('id', roomId);
       } else {
@@ -124,23 +119,17 @@ class DiscoverService {
               'participant_a': myId,
               'participant_b': guideId,
               'request_id': requestId,
-              'left_users': [],
-              'last_message': '매칭이 완료되었습니다!',
-              'last_message_at': DateTime.now().toIso8601String(),
-              // ✅ [추가] 신규 생성 시에도 확정 상태로 시작!
               'schedule_status': 'confirmed',
-              'meeting_date': requestData['travel_at'].toString().split(' ')[0],
-              'meeting_time': requestData['travel_at']
-                  .toString()
-                  .split(' ')[1]
-                  .substring(0, 5),
+              'meeting_date': dateStr,
+              'meeting_time': timeStr,
+              'last_message': '매칭 완료! 즐거운 여행 되세요.',
+              'last_message_at': DateTime.now().toIso8601String(),
             })
             .select()
             .single();
         roomId = newRoom['id'];
       }
 
-      // 2. 핵심 상태값 변경 (컨트롤러 테이블만 건드림)
       await _supabase
           .from('travel_requests')
           .update({'status': 'matched'})
@@ -150,28 +139,24 @@ class DiscoverService {
           .update({'status': 'accepted'})
           .eq('id', offerId);
 
-      // 3. 일정 테이블에 기록 (준님 말대로 status 없이 팩트만!)
-      // 3. [유저 일정] user_schedules 인서트
       await _supabase.from('user_schedules').insert({
         'user_id': myId,
         'guide_id': guideId,
         'title': requestData['title'],
-        'partner_name': guideData['nickname'], // 가이드 닉네임
+        'partner_name': guideData['nickname'],
         'trip_date': requestData['travel_at'],
+        'status': 'confirmed',
       });
 
-      // 4. [가이드 일정] guide_schedules 인서트 (추가한 컬럼 반영)
       await _supabase.from('guide_schedules').insert({
         'guide_id': guideId,
-        'user_id': myId, // 👈 새로 추가한 컬럼!
-        'partner_name': myData['nickname'], // 👈 새로 추가한 컬럼! (유저 닉네임)
         'title': requestData['title'],
         'trip_date': requestData['travel_at'],
-        'location': requestData['location'],
+        'location': requestData['location_name'],
         'status': 'booked',
       });
 
-      debugPrint("✅ 매칭 및 일정 등록 완료: $roomId");
+      debugPrint("✅ 3개 테이블(Chat, UserSch, GuideSch) 동기화 완료!");
       return roomId;
     } catch (e) {
       debugPrint("❌ 수락 처리 실패: $e");
@@ -179,7 +164,7 @@ class DiscoverService {
     }
   }
 
-  /// ✉️ [가이드 전용] 제안 보내기 (최대 5건 제한 추가)
+  /// ✉️ 제안 보내기
   Future<String?> sendOffer({
     required String requestId,
     required int price,
@@ -189,27 +174,22 @@ class DiscoverService {
       final myId = _supabase.auth.currentUser?.id;
       if (myId == null) return "로그인이 필요합니다.";
 
-      // 💡 [수정] 거절된 제안('rejected')을 제외하고 현재 활성화된 제안만 카운트합니다.
       final activeOffers = await _supabase
           .from('offers')
           .select('id')
           .eq('request_id', requestId)
-          .neq('status', 'rejected'); // 👈 거절된 건 슬롯에서 빼줌!
+          .neq('status', 'rejected');
 
-      final currentCount = activeOffers.length;
-
-      // 2. 5건 이상이면 차단 (나중에 여기서 유료 유저 체크 로직 넣으면 BM 완성!)
-      if (currentCount >= 5) {
+      if (activeOffers.length >= 5) {
         return "이미 제안 슬롯이 가득 찬 공고입니다.";
       }
 
-      // 3. 제안 저장
       await _supabase.from('offers').insert({
         'request_id': requestId,
         'guide_id': myId,
         'price': price,
         'message': message,
-        'status': 'pending', // 기본값은 대기중
+        'status': 'pending',
       });
 
       return null;
@@ -218,7 +198,7 @@ class DiscoverService {
     }
   }
 
-  /// 📋 [여행자 전용] 내가 등록한 여행 공고 목록 (제안 개수 실시간 반영용)
+  /// 📋 내 여행 공고 목록
   Future<List<Map<String, dynamic>>> fetchMyTravelRequests() async {
     try {
       final myId = _supabase.auth.currentUser?.id;
@@ -226,22 +206,16 @@ class DiscoverService {
 
       final data = await _supabase
           .from('travel_requests')
-          .select('''
-            *,
-            offers(status)
-          ''') // 💡 count 대신 status를 가져와서 코드에서 rejected를 거릅니다.
+          .select('*, offers(status)')
           .eq('writer_id', myId)
           .eq('status', 'searching')
           .order('created_at', ascending: false);
 
-      // 💡 여기서 rejected를 제외한 진짜 개수를 Map에 다시 넣어줍니다.
       final processedData = data.map((req) {
         final offers = req['offers'] as List? ?? [];
         final activeCount = offers
             .where((o) => o['status'] != 'rejected')
             .length;
-
-        // UI에서 쓰기 편하게 'active_offers_count'라는 키로 저장
         return {...req, 'active_offers_count': activeCount};
       }).toList();
 
@@ -252,8 +226,7 @@ class DiscoverService {
     }
   }
 
-  /// 📩 [여행자 전용] 특정 공고에 들어온 가이드 제안 목록 가져오기
-  /// 📩 [여행자 전용] 특정 공고에 들어온 가이드 제안 목록
+  /// 📩 특정 공고 제안 목록
   Future<List<Map<String, dynamic>>> fetchOffersForRequest(
     String requestId,
   ) async {
@@ -263,11 +236,7 @@ class DiscoverService {
           .select('''
             *,
             users:guide_id(
-              id, 
-              nickname, 
-              profile_image, 
-              age, 
-              nationality,
+              id, nickname, profile_image, age, nationality,
               guides(*)
             )
           ''')
@@ -281,7 +250,6 @@ class DiscoverService {
     }
   }
 
-  // discover_service.dart
   Future<List<Map<String, dynamic>>> fetchUserRequests(String userId) async {
     final response = await _supabase
         .from('requests')
@@ -291,16 +259,14 @@ class DiscoverService {
     return List<Map<String, dynamic>>.from(response);
   }
 
-  /// ❌ 제안 거절하기 (상태를 'rejected'로 변경해서 슬롯 비우기)
+  /// ❌ 제안 거절
   Future<bool> rejectOffer(String offerId) async {
     try {
-      // 1. Supabase의 'offers' 테이블에서 해당 ID의 상태를 업데이트합니다.
       await _supabase
           .from('offers')
           .update({'status': 'rejected'})
           .eq('id', offerId);
-
-      debugPrint("🚫 제안 거절 완료 (슬롯 확보): $offerId");
+      debugPrint("🚫 제안 거절 완료: $offerId");
       return true;
     } catch (e) {
       debugPrint("❌ 제안 거절 실패: $e");
@@ -308,8 +274,7 @@ class DiscoverService {
     }
   }
 
-  /// 📋 [가이드 모드용] 여행 공고 리스트 (내가 제안한 공고 포함 버전)
-  /// 📋 [가이드 모드용] 여행 공고 리스트 (거절된 공고는 제외하고 가져오기)
+  /// 📋 가이드용 여행 공고 리스트
   Future<List<Map<String, dynamic>>> fetchTravelRequests({
     int limit = 20,
   }) async {
@@ -317,7 +282,6 @@ class DiscoverService {
       final myId = _supabase.auth.currentUser?.id;
       if (myId == null) return [];
 
-      // 1. 쿼리 실행: 내가 쓴 글 제외 + 기본 정보 및 제안 상태 조인
       var query = _supabase
           .from('travel_requests')
           .select('''
@@ -332,27 +296,17 @@ class DiscoverService {
           .order('created_at', ascending: false)
           .limit(limit);
 
-      // 2. 데이터 필터링 및 가공
-      // - 내가 보낸 제안 중 'rejected'가 있는 공고는 리스트에서 삭제
-      // - 나머지는 'is_applied' 여부 추가
       final processedData = data
           .where((req) {
             final List offers = req['offers'] as List? ?? [];
-
-            // 내 제안 중 거절(rejected)된 게 하나라도 있는지 확인
             final bool isRejectedByMe = offers.any(
               (o) => o['guide_id'] == myId && o['status'] == 'rejected',
             );
-
-            // 거절된 공고라면 false를 반환하여 목록에서 제거
             return !isRejectedByMe;
           })
           .map((req) {
             final List offers = req['offers'] as List? ?? [];
-
-            // 거절되지 않은 공고들 중 내가 이미 제안했는지(pending 등) 확인
             final bool isApplied = offers.any((o) => o['guide_id'] == myId);
-
             return {...req, 'is_applied': isApplied};
           })
           .toList();
@@ -364,13 +318,12 @@ class DiscoverService {
     }
   }
 
-  /// 💬 [공통] 채팅 목록용 매칭된 방 가져오기
+  /// 💬 채팅 목록용 매칭 방 목록
   Future<List<Map<String, dynamic>>> fetchMatches() async {
     try {
       final myId = _supabase.auth.currentUser?.id;
       if (myId == null) return [];
 
-      // 내가 참여자 A이거나 B인 방을 모두 가져오고, 상대방(users) 정보를 조인합니다.
       final data = await _supabase
           .from('chat_rooms')
           .select('''
@@ -381,17 +334,12 @@ class DiscoverService {
           .or('participant_a.eq.$myId,participant_b.eq.$myId')
           .order('last_message_at', ascending: false);
 
-      // 내 아이디가 아닌 상대방의 정보를 'target_user'라는 키로 정리해서 반환
       final processedData = data.map((room) {
         final bool isA = room['participant_a'] == myId;
         final targetUser = isA
             ? room['participant_b_user']
             : room['participant_a_user'];
-
-        return {
-          ...room,
-          'target_user': targetUser, // UI에서 쓰기 편하게 정리
-        };
+        return {...room, 'target_user': targetUser};
       }).toList();
 
       return List<Map<String, dynamic>>.from(processedData);

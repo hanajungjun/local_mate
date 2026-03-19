@@ -15,6 +15,7 @@ class ScheduleService {
           .from('user_schedules')
           .select('*')
           .eq('user_id', userId)
+          .eq('status', 'confirmed') // ✅ 추가
           .order('trip_date', ascending: true);
 
       return List<Map<String, dynamic>>.from(data);
@@ -34,6 +35,7 @@ class ScheduleService {
           .from('guide_schedules')
           .select('*')
           .eq('guide_id', userId)
+          .eq('status', 'booked') // ✅ 추가
           .order('trip_date', ascending: true);
 
       return List<Map<String, dynamic>>.from(data);

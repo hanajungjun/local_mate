@@ -40,7 +40,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         .from('chat_rooms')
         .stream(primaryKey: ['id'])
         .eq('id', widget.roomId);
-
+    debugPrint("🔍 roomId: ${widget.roomId}");
     // ✅ 방 진입 시: 1) Presence 업데이트 (나 들어왔다!)
     _updatePresence(true);
     // ✅ 2) [핵심 추가] RPC 호출: 상대방 메시지 전부 읽음 처리
@@ -533,9 +533,17 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   Widget _buildInfoBar(Map<String, dynamic> roomData) {
+    // ✅ 데이터 아직 안 왔으면 빈 바 표시
+    if (roomData.isEmpty) {
+      return Container(height: 40, color: Colors.blue.withOpacity(0.05));
+    }
     final scheduleStatus = roomData['schedule_status'] as String? ?? 'none';
     final String? mDate = roomData['meeting_date'];
     final String? mTime = roomData['meeting_time'];
+
+    debugPrint("🔍 roomData: $roomData"); // ✅ 추가
+    debugPrint("🔍 schedule_status: ${roomData['schedule_status']}"); // ✅ 추가
+    debugPrint("🔍 _isTraveler: $_isTraveler"); // ✅ 추가
 
     String message;
     String? btnText;
