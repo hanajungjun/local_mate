@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:country_picker/country_picker.dart';
+import 'package:localmate/core/constants/app_colors.dart';
 
 class TravelerDiscoverView extends StatelessWidget {
   final List<Map<String, dynamic>> users;
@@ -21,6 +22,10 @@ class TravelerDiscoverView extends StatelessWidget {
     required this.onActionBtnTap,
   });
 
+  // ✅ 기본 이미지 경로 (회색 실루엣)
+  final String _defaultProfileUrl =
+      "https://www.shutterstock.com/image-vector/default-avatar-profile-icon-social-600nw-1677509740.jpg";
+
   String _formatNationality(String? code) {
     if (code == null || code.isEmpty) return "🌐 지구인";
     if (code.contains(' ')) return code;
@@ -35,7 +40,10 @@ class TravelerDiscoverView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (users.isEmpty) return const Center(child: Text("주변에 메이트가 없어요!"));
+    if (users.isEmpty)
+      return const Center(
+        child: Text("주변에 메이트가 없어요!", style: TextStyle(color: Colors.grey)),
+      );
 
     return Stack(
       children: [
@@ -64,18 +72,22 @@ class TravelerDiscoverView extends StatelessWidget {
   }
 
   Widget _buildUserCard(Map<String, dynamic> user) {
+    // 📸 사진 로직 수정: 리스트가 비어있으면 랜덤이 아닌 기본 실루엣 이미지 사용
     final List<dynamic> images = user['profile_image'] is List
         ? user['profile_image']
         : [];
     final String imageUrl = images.isNotEmpty
         ? images[0].toString()
-        : 'https://picsum.photos/600/800';
+        : _defaultProfileUrl;
 
-    final guideData = user['guides'];
-    final bool isVerified = guideData?['is_verified'] ?? false;
-    final List<dynamic> specialties = guideData?['specialties'] ?? [];
-    final String rating = guideData?['rating_avg']?.toString() ?? "0.0";
-    final int reviewCount = guideData?['review_count'] ?? 0;
+    final guideData = user['guides'] ?? {};
+    final bool isVerified = guideData['is_verified'] ?? false;
+    final List<dynamic> specialties = guideData['specialties'] ?? [];
+
+    // ⭐ 별점 로직 수정: 리뷰가 0개면 "신규"로 표시
+    final double rawRating = (guideData['rating_avg'] ?? 0.0).toDouble();
+    final int reviewCount = guideData['review_count'] ?? 0;
+    final bool isNewMate = reviewCount == 0;
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -83,8 +95,8 @@ class TravelerDiscoverView extends StatelessWidget {
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 15,
             spreadRadius: 2,
           ),
         ],
@@ -92,21 +104,25 @@ class TravelerDiscoverView extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. 배경 이미지
+          // 1. 배경 이미지 (이미지 없으면 회색 실루엣)
           CachedNetworkImage(
             imageUrl: imageUrl,
             fit: BoxFit.cover,
             placeholder: (context, url) => Container(color: Colors.grey[200]),
+            errorWidget: (context, url, error) => Container(
+              color: Colors.grey[300],
+              child: const Icon(Icons.person, size: 100, color: Colors.white),
+            ),
           ),
 
-          // 2. 가독성을 위한 그라데이션
+          // 2. 가독성을 위한 그라데이션 (조금 더 진하게)
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Colors.black.withOpacity(0.85)],
-                stops: const [0.5, 1.0],
+                colors: [Colors.transparent, Colors.black.withOpacity(0.9)],
+                stops: const [0.4, 1.0],
               ),
             ),
           ),
@@ -119,25 +135,39 @@ class TravelerDiscoverView extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // 평점 뱃지
+                // ✅ 평점/신규 뱃지
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                    horizontal: 14,
+                    vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
+                    color: isNewMate
+                        ? Colors.blueAccent.withOpacity(0.9)
+                        : Colors.black.withOpacity(0.6),
                     borderRadius: BorderRadius.circular(20),
+                    border: isNewMate
+                        ? Border.all(color: Colors.white, width: 1.5)
+                        : null,
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.star, color: Colors.amber, size: 18),
+                      Icon(
+                        isNewMate
+                            ? Icons.fiber_new_rounded
+                            : Icons.star_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        "$rating ($reviewCount)",
+                        isNewMate
+                            ? "신규 메이트"
+                            : "${rawRating.toStringAsFixed(1)} ($reviewCount)",
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
+                          fontSize: 14,
                         ),
                       ),
                     ],
@@ -160,10 +190,11 @@ class TravelerDiscoverView extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 전문 분야 해시태그 (강조)
+                // 전문 분야 해시태그
                 if (specialties.isNotEmpty) ...[
                   Wrap(
                     spacing: 8,
+                    runSpacing: 4,
                     children: specialties
                         .take(3)
                         .map(
@@ -173,7 +204,7 @@ class TravelerDiscoverView extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.orangeAccent,
+                              color: AppColors.travelingPurple.withOpacity(0.8),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -211,14 +242,18 @@ class TravelerDiscoverView extends StatelessWidget {
 
                 const SizedBox(height: 12),
 
-                // 한 줄 소개 (guide_bio)
+                // 한 줄 소개
                 Text(
                   guideData['guide_bio'] ?? user['bio'] ?? "안녕하세요! 반갑습니다.",
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.4,
+                  ),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 100), // 하단 버튼 공간
+                const SizedBox(height: 100), // 하단 버튼 공간 확보
               ],
             ),
           ),
@@ -227,6 +262,7 @@ class TravelerDiscoverView extends StatelessWidget {
     );
   }
 
+  // --- 하단 액션 버튼 위젯들 (기존과 동일하게 유지) ---
   Widget _buildActionButtons() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
