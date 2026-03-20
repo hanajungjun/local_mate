@@ -234,4 +234,32 @@ class TourService {
       rethrow;
     }
   }
+
+  /// 🚫 [여행자용] 여행 공고 자체를 취소하기
+  /// 해당 공고(request)를 취소하고, 그 공고에 온 모든 제안(offers)을 거절 처리합니다.
+  Future<void> cancelEntireRequest(String requestId) async {
+    if (_myId == null) throw Exception("로그인이 필요합니다.");
+
+    try {
+      // 1. 해당 공고에 들어온 모든 제안들을 'rejected'로 일괄 변경
+      // 가이드들이 "아, 이 여행은 취소됐구나"라고 바로 알 수 있게 합니다.
+      await _supabase
+          .from('offers')
+          .update({'status': 'rejected'})
+          .eq('request_id', requestId)
+          .eq('status', 'pending'); // 대기 중인 것들만 거절
+
+      // 2. 여행 공고 상태를 'cancelled'로 변경
+      // 삭제(delete)보다는 상태 변경이 나중에 히스토리 보기 좋습니다.
+      await _supabase
+          .from('travel_requests')
+          .update({'status': 'cancelled'})
+          .eq('id', requestId);
+
+      debugPrint("✅ 공고 및 관련 제안 전체 취소 완료: $requestId");
+    } catch (e) {
+      debugPrint("❌ 공고 취소 실패: $e");
+      rethrow;
+    }
+  }
 }

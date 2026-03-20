@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:localmate/core/constants/app_colors.dart';
 import 'package:localmate/services/discover_service.dart';
-import 'package:localmate/services/matching_service.dart';
+import 'package:localmate/services/tour_service.dart';
 import 'package:localmate/features/chat/pages/chat_room_page.dart';
 import 'package:localmate/core/utils/travel_utils.dart';
 import 'guide_profile_detail_page.dart';
@@ -22,7 +22,7 @@ class ReceivedOffersPage extends StatefulWidget {
 
 class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
   final DiscoverService _discoverService = DiscoverService();
-  final MatchingService _matchingService = MatchingService();
+  final TourService _tourService = TourService();
   late Future<List<Map<String, dynamic>>> _offersFuture;
 
   @override
@@ -35,6 +35,59 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
     setState(() {
       _offersFuture = _discoverService.fetchOffersForRequest(widget.requestId);
     });
+  }
+
+  Future<void> _handleCancelRequest() async {
+    // 1. 정말 취소할 건지 물어보기 (실수 방지)
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          "📣 여행 공고 취소",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: const Text("정말로 이 여행 공고를 취소하시겠습니까?\n받은 모든 제안이 자동으로 거절 처리됩니다."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("아니요", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text(
+              "공고 취소하기",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // 2. 로딩 띄우고 처리
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      await _tourService.cancelEntireRequest(widget.requestId);
+
+      if (mounted) {
+        Navigator.pop(context); // 로딩 닫기
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("🚀 여행 공고가 성공적으로 취소되었습니다.")),
+        );
+        Navigator.pop(context); // 제안 목록 페이지 닫고 공고 리스트로 이동
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context); // 로딩 닫기
+      debugPrint("❌ 취소 중 오류 발생: $e");
+    }
   }
 
   @override
@@ -52,7 +105,26 @@ class _ReceivedOffersPageState extends State<ReceivedOffersPage> {
         ),
         backgroundColor: Colors.white,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.black, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+        // ✅ [추가] 우측 상단 공고 취소 버튼
+        actions: [
+          TextButton(
+            onPressed: _handleCancelRequest,
+            child: const Text(
+              "공고 취소",
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _offersFuture,
